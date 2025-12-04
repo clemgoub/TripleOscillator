@@ -2,6 +2,8 @@
 
 A professional-grade subtractive synthesizer built with Python and PyQt5. Features three independent oscillators with multiple waveforms, ADSR envelope shaping, and a resonant low-pass filter.
 
+![Triple Oscillator Synth](screenshot.png)
+
 ## Features
 
 ### Oscillators
