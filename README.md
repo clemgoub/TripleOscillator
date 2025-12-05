@@ -95,9 +95,98 @@ python sine_generator_qt.py
 
 ## Architecture
 
-### Signal Flow
+### Code Architecture
+
+```mermaid
+classDiagram
+    class SineWaveGenerator {
+        +sample_rate: int
+        +freq1, freq2, freq3: float
+        +waveform1, waveform2, waveform3: str
+        +gain1, gain2, gain3: float
+        +osc1_on, osc2_on, osc3_on: bool
+        +env1, env2, env3: EnvelopeGenerator
+        +filter: LowPassFilter
+        +init_ui()
+        +audio_callback()
+        +toggle_oscillator()
+        +generate_waveform()
+    }
+
+    class EnvelopeGenerator {
+        +attack: float
+        +decay: float
+        +sustain: float
+        +release: float
+        +phase: str
+        +level: float
+        +trigger()
+        +release_note()
+        +process(num_samples)
+    }
+
+    class LowPassFilter {
+        +cutoff: float
+        +resonance: float
+        +y1, y2: float
+        +x1, x2: float
+        +process(input_signal)
+    }
+
+    SineWaveGenerator "1" --> "3" EnvelopeGenerator : contains
+    SineWaveGenerator "1" --> "1" LowPassFilter : contains
 ```
-Oscillators → Mixer → ADSR Envelope → Low-Pass Filter → Output
+
+### Signal Flow
+
+```mermaid
+graph LR
+    A[Oscillator 1<br/>Waveform Generator] --> D[Mixer<br/>Gain Control]
+    B[Oscillator 2<br/>Waveform Generator] --> D
+    C[Oscillator 3<br/>Waveform Generator] --> D
+    D --> E[ADSR Envelope<br/>Amplitude Shaping]
+    E --> F[Low-Pass Filter<br/>Frequency Shaping]
+    F --> G[Audio Output<br/>Stereo 44.1kHz]
+
+    H[UI Controls] -.->|frequency| A
+    H -.->|frequency| B
+    H -.->|frequency| C
+    H -.->|waveform| A
+    H -.->|waveform| B
+    H -.->|waveform| C
+    H -.->|gain| D
+    H -.->|ADSR params| E
+    H -.->|cutoff/resonance| F
+    I[ON/OFF Buttons] -.->|trigger/release| E
+```
+
+### Audio Processing Flow
+
+```mermaid
+sequenceDiagram
+    participant UI as User Interface
+    participant OSC as Oscillators
+    participant ENV as ADSR Envelopes
+    participant MIX as Mixer
+    participant FILT as Filter
+    participant OUT as Audio Output
+
+    UI->>OSC: Set frequency, waveform
+    UI->>ENV: Set attack, decay, sustain, release
+    UI->>FILT: Set cutoff, resonance
+
+    loop Every Audio Buffer (frames)
+        OSC->>OSC: Generate waveforms
+        OSC->>ENV: Apply envelope shaping
+        ENV->>MIX: Mix oscillators with gain
+        MIX->>FILT: Apply low-pass filter
+        FILT->>OUT: Output stereo audio
+    end
+
+    UI->>ENV: Button ON (trigger)
+    ENV->>ENV: Attack → Decay → Sustain
+    UI->>ENV: Button OFF (release)
+    ENV->>ENV: Release → Idle
 ```
 
 ### Components
