@@ -118,6 +118,13 @@ class EnvelopeGenerator:
                 samples_left_in_phase = attack_samples - self.samples_in_phase
                 samples_to_process = min(remaining, samples_left_in_phase)
 
+                # Safety check: ensure we have samples to process
+                if samples_to_process <= 0:
+                    self.level = 1.0
+                    self.phase = 'decay'
+                    self.samples_in_phase = 0
+                    continue
+
                 # Vectorized attack calculation
                 sample_indices = np.arange(samples_to_process)
                 progress = (self.samples_in_phase + sample_indices) / attack_samples
@@ -137,6 +144,13 @@ class EnvelopeGenerator:
                 decay_samples = max(1, int(self.decay * self.sample_rate))
                 samples_left_in_phase = decay_samples - self.samples_in_phase
                 samples_to_process = min(remaining, samples_left_in_phase)
+
+                # Safety check: ensure we have samples to process
+                if samples_to_process <= 0:
+                    self.level = self.sustain
+                    self.phase = 'sustain'
+                    self.samples_in_phase = 0
+                    continue
 
                 # Vectorized decay calculation
                 sample_indices = np.arange(samples_to_process)
@@ -164,6 +178,13 @@ class EnvelopeGenerator:
                 samples_left_in_phase = release_samples - self.samples_in_phase
                 samples_to_process = min(remaining, samples_left_in_phase)
 
+                # Safety check: ensure we have samples to process
+                if samples_to_process <= 0:
+                    self.level = 0.0
+                    self.phase = 'idle'
+                    self.samples_in_phase = 0
+                    continue
+
                 # Vectorized release calculation
                 sample_indices = np.arange(samples_to_process)
                 progress = (self.samples_in_phase + sample_indices) / release_samples
@@ -189,21 +210,19 @@ class LowPassFilter:
         self.cutoff = 5000.0  # Hz
         self.resonance = 0.0  # 0-1
 
-        # Filter state
-        self.y1 = 0.0
-        self.y2 = 0.0
-        self.x1 = 0.0
-        self.x2 = 0.0
+        # Filter state (zi format for scipy)
+        self.zi = None
+        self.b = None
+        self.a = None
+        self.last_cutoff = None
+        self.last_resonance = None
 
     def reset(self):
         """Reset filter state to prevent artifacts"""
-        self.y1 = 0.0
-        self.y2 = 0.0
-        self.x1 = 0.0
-        self.x2 = 0.0
+        self.zi = None
 
     def process(self, input_signal):
-        """Apply low-pass filter to input signal (optimized with scipy)"""
+        """Apply low-pass filter with proper state preservation"""
         # Calculate filter coefficients
         freq = self.cutoff / self.sample_rate
         q = 1.0 + self.resonance * 10.0  # Map 0-1 to 1-11
@@ -227,21 +246,17 @@ class LowPassFilter:
         b1 /= a0
         b2 /= a0
 
-        # Build coefficient arrays for scipy.signal.lfilter
-        # b coefficients (numerator), a coefficients (denominator)
+        # Build coefficient arrays
         b = [b0, b1, b2]
         a = [1.0, a1, a2]
 
-        # Use scipy's fast C implementation with state preservation
-        output, zi = scipy_signal.lfilter(b, a, input_signal,
-                                          zi=[self.x1, self.x2])
+        # Initialize state only once, keep it even when parameters change
+        # This prevents clicks when adjusting filter in real-time
+        if self.zi is None:
+            self.zi = scipy_signal.lfilter_zi(b, a)
 
-        # Update state for next call
-        if len(output) > 0:
-            self.x2 = self.x1
-            self.x1 = input_signal[-1] if len(input_signal) > 0 else self.x1
-            self.y2 = self.y1
-            self.y1 = output[-1]
+        # Apply filter with state preservation
+        output, self.zi = scipy_signal.lfilter(b, a, input_signal, zi=self.zi)
 
         return output
 
@@ -969,7 +984,7 @@ class SineWaveGenerator(QMainWindow):
                 self.stream = sd.OutputStream(
                     samplerate=self.sample_rate,
                     channels=2,
-                    blocksize=2048,  # Larger buffer to prevent underruns
+                    blocksize=512,  # Smaller buffer for lower latency and better scheduling
                     callback=self.audio_callback
                 )
                 self.stream.start()
@@ -1021,6 +1036,8 @@ class SineWaveGenerator(QMainWindow):
         self.freq1_label.setText(f"{self.freq1:.1f} Hz")
         self.freq2_label.setText(f"{self.freq2:.1f} Hz")
         self.freq3_label.setText(f"{self.freq3:.1f} Hz")
+
+        # Don't reset filter - let it maintain state for smooth transitions
 
         # Only trigger envelopes on oscillators that are already enabled
         # This prevents forcing all oscillators on and causing clipping

@@ -66,7 +66,7 @@ pip install -r requirements.txt
 
 Run the synthesizer:
 ```bash
-python sine_generator_qt.py
+./venv/bin/python sine_generator_qt.py
 ```
 
 ### Creating Sounds
