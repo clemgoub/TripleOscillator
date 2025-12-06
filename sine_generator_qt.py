@@ -268,6 +268,7 @@ class SineWaveGenerator(QMainWindow):
         # Audio parameters
         self.sample_rate = 44100
         self.stream = None
+        self.power_on = True  # Master power switch
 
         # Oscillator 1 parameters
         self.freq1 = 440.0
@@ -297,6 +298,7 @@ class SineWaveGenerator(QMainWindow):
         self.gain1 = 0.33
         self.gain2 = 0.33
         self.gain3 = 0.33
+        self.master_volume = 0.5  # Master volume (0.0 to 1.0)
 
         # Envelope generators (one per oscillator)
         self.env1 = EnvelopeGenerator(self.sample_rate)
@@ -349,6 +351,29 @@ class SineWaveGenerator(QMainWindow):
         refresh_button.setFont(QFont("Arial", 10))
         refresh_button.clicked.connect(self.refresh_midi_ports)
         midi_layout.addWidget(refresh_button)
+
+        midi_layout.addStretch(1)
+
+        # Power button
+        self.power_button = QPushButton("POWER ON")
+        self.power_button.setFont(QFont("Arial", 11, QFont.Bold))
+        self.power_button.setFixedSize(100, 40)
+        self.power_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2d5016;
+                color: #90ee90;
+                border: 2px solid #4a7c29;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #3a6620;
+            }
+            QPushButton:pressed {
+                background-color: #1f3810;
+            }
+        """)
+        self.power_button.clicked.connect(self.toggle_power)
+        midi_layout.addWidget(self.power_button)
 
         midi_layout.addStretch(1)
         main_layout.addLayout(midi_layout)
@@ -469,7 +494,7 @@ class SineWaveGenerator(QMainWindow):
         freq_knob.setMaximum(1000)
         freq_knob.setNotchesVisible(True)
         freq_knob.setWrapping(False)
-        freq_knob.setFixedSize(100, 100)
+        freq_knob.setFixedSize(70, 70)
 
         # Set initial position for 440 Hz
         initial_position = int(1000 * (np.log10(440) - self.min_log) / (self.max_log - self.min_log))
@@ -574,17 +599,6 @@ class SineWaveGenerator(QMainWindow):
         octave_layout.addWidget(octave_up_btn)
         octave_layout.addStretch(1)
         layout.addLayout(octave_layout)
-
-        # Range labels
-        range_layout = QHBoxLayout()
-        min_label = QLabel("20Hz")
-        min_label.setFont(QFont("Arial", 7))
-        max_label = QLabel("5kHz")
-        max_label.setFont(QFont("Arial", 7))
-        range_layout.addWidget(min_label)
-        range_layout.addStretch(1)
-        range_layout.addWidget(max_label)
-        layout.addLayout(range_layout)
 
         layout.addStretch(1)
 
@@ -719,6 +733,34 @@ class SineWaveGenerator(QMainWindow):
         self.gain3_label.setAlignment(Qt.AlignCenter)
         self.gain3_label.setFont(QFont("Arial", 9, QFont.Bold))
         layout.addWidget(self.gain3_label)
+
+        layout.addStretch(1)
+
+        # Master Volume knob
+        master_label = QLabel("Master")
+        master_label.setAlignment(Qt.AlignCenter)
+        master_label.setFont(QFont("Arial", 9))
+        layout.addWidget(master_label)
+
+        self.master_volume_knob = QDial()
+        self.master_volume_knob.setMinimum(0)
+        self.master_volume_knob.setMaximum(100)
+        self.master_volume_knob.setNotchesVisible(True)
+        self.master_volume_knob.setWrapping(False)
+        self.master_volume_knob.setFixedSize(70, 70)
+        self.master_volume_knob.setValue(50)
+        self.master_volume_knob.valueChanged.connect(self.update_master_volume)
+
+        master_knob_layout = QHBoxLayout()
+        master_knob_layout.addStretch(1)
+        master_knob_layout.addWidget(self.master_volume_knob)
+        master_knob_layout.addStretch(1)
+        layout.addLayout(master_knob_layout)
+
+        self.master_volume_label = QLabel("50%")
+        self.master_volume_label.setAlignment(Qt.AlignCenter)
+        self.master_volume_label.setFont(QFont("Arial", 9, QFont.Bold))
+        layout.addWidget(self.master_volume_label)
 
         layout.addStretch(1)
 
@@ -966,6 +1008,11 @@ class SineWaveGenerator(QMainWindow):
             self.gain3 = gain
             self.gain3_label.setText(f"{value}%")
 
+    def update_master_volume(self, value):
+        """Update master volume from knob (0-100%)"""
+        self.master_volume = value / 100.0
+        self.master_volume_label.setText(f"{value}%")
+
     def update_adsr(self, param, value):
         """Update ADSR parameters"""
         if param == 'attack':
@@ -1016,6 +1063,12 @@ class SineWaveGenerator(QMainWindow):
         """Generate and mix three oscillators with envelopes and filter"""
         # Don't print in audio callback - causes buffer underruns
 
+        # If power is off, output silence
+        if not self.power_on:
+            outdata[:, 0] = 0
+            outdata[:, 1] = 0
+            return
+
         mixed = np.zeros(frames)
 
         # Generate oscillator 1 (only if on)
@@ -1045,8 +1098,8 @@ class SineWaveGenerator(QMainWindow):
         # Apply filter
         filtered = self.filter.process(mixed)
 
-        # Apply master volume (reduced for headroom with filter resonance)
-        filtered = 0.2 * filtered
+        # Apply master volume
+        filtered = self.master_volume * filtered
 
         # Output stereo
         outdata[:, 0] = filtered
@@ -1111,6 +1164,43 @@ class SineWaveGenerator(QMainWindow):
 
         # Manage audio stream
         self.manage_audio_stream()
+
+    def toggle_power(self):
+        """Toggle master power on/off"""
+        self.power_on = not self.power_on
+
+        if self.power_on:
+            self.power_button.setText("POWER ON")
+            self.power_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #2d5016;
+                    color: #90ee90;
+                    border: 2px solid #4a7c29;
+                    border-radius: 5px;
+                }
+                QPushButton:hover {
+                    background-color: #3a6620;
+                }
+                QPushButton:pressed {
+                    background-color: #1f3810;
+                }
+            """)
+        else:
+            self.power_button.setText("POWER OFF")
+            self.power_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #5c1010;
+                    color: #ff6b6b;
+                    border: 2px solid #8b2020;
+                    border-radius: 5px;
+                }
+                QPushButton:hover {
+                    background-color: #6b1515;
+                }
+                QPushButton:pressed {
+                    background-color: #3d0a0a;
+                }
+            """)
 
     def manage_audio_stream(self):
         """Start or stop audio stream based on oscillator states"""
