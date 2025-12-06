@@ -274,18 +274,21 @@ class SineWaveGenerator(QMainWindow):
         self.phase1 = 0
         self.osc1_on = False
         self.waveform1 = "Sine"
+        self.detune1 = 0.0  # Detune in cents (-100 to +100)
 
         # Oscillator 2 parameters (phase offset to reduce constructive interference)
         self.freq2 = 440.0
         self.phase2 = 2 * np.pi / 3
         self.osc2_on = False
         self.waveform2 = "Sine"
+        self.detune2 = 0.0  # Detune in cents (-100 to +100)
 
         # Oscillator 3 parameters (phase offset to reduce constructive interference)
         self.freq3 = 440.0
         self.phase3 = 4 * np.pi / 3
         self.osc3_on = False
         self.waveform3 = "Sine"
+        self.detune3 = 0.0  # Detune in cents (-100 to +100)
 
         # Mixer parameters (0.0 to 1.0)
         self.gain1 = 0.33
@@ -786,21 +789,51 @@ class SineWaveGenerator(QMainWindow):
         else:
             return str(value)
 
-    def update_frequency(self, osc_num, value):
-        """Update frequency from knob using logarithmic scale"""
-        slider_position = float(value) / 1000.0
-        log_freq = self.min_log + slider_position * (self.max_log - self.min_log)
-        frequency = 10 ** log_freq
+    def apply_detune(self, base_freq, detune_cents):
+        """Apply detune in cents to a base frequency"""
+        return base_freq * (2.0 ** (detune_cents / 1200.0))
 
-        if osc_num == 1:
-            self.freq1 = frequency
-            self.freq1_label.setText(f"{self.freq1:.1f} Hz")
-        elif osc_num == 2:
-            self.freq2 = frequency
-            self.freq2_label.setText(f"{self.freq2:.1f} Hz")
+    def update_frequency(self, osc_num, value):
+        """Update frequency from knob - acts as detune in MIDI mode, frequency in drone mode"""
+        if self.midi_handler.running:
+            # MIDI mode: knob controls detune in cents (-100 to +100)
+            # Map 0-1000 slider to -100 to +100 cents
+            detune_cents = (float(value) / 1000.0) * 200.0 - 100.0
+
+            if osc_num == 1:
+                self.detune1 = detune_cents
+                self.freq1_label.setText(f"{detune_cents:+.1f} cents")
+            elif osc_num == 2:
+                self.detune2 = detune_cents
+                self.freq2_label.setText(f"{detune_cents:+.1f} cents")
+            else:
+                self.detune3 = detune_cents
+                self.freq3_label.setText(f"{detune_cents:+.1f} cents")
+
+            # If a note is currently playing, update the frequencies with new detune
+            if self.current_note is not None:
+                base_freq = self.midi_note_to_freq(self.current_note)
+                if osc_num == 1:
+                    self.freq1 = self.apply_detune(base_freq, self.detune1)
+                elif osc_num == 2:
+                    self.freq2 = self.apply_detune(base_freq, self.detune2)
+                else:
+                    self.freq3 = self.apply_detune(base_freq, self.detune3)
         else:
-            self.freq3 = frequency
-            self.freq3_label.setText(f"{self.freq3:.1f} Hz")
+            # Drone mode: knob controls absolute frequency (original behavior)
+            slider_position = float(value) / 1000.0
+            log_freq = self.min_log + slider_position * (self.max_log - self.min_log)
+            frequency = 10 ** log_freq
+
+            if osc_num == 1:
+                self.freq1 = frequency
+                self.freq1_label.setText(f"{self.freq1:.1f} Hz")
+            elif osc_num == 2:
+                self.freq2 = frequency
+                self.freq2_label.setText(f"{self.freq2:.1f} Hz")
+            else:
+                self.freq3 = frequency
+                self.freq3_label.setText(f"{self.freq3:.1f} Hz")
 
     def update_waveform(self, osc_num, waveform):
         """Update waveform selection"""
@@ -1015,8 +1048,18 @@ class SineWaveGenerator(QMainWindow):
             success = self.midi_handler.start(port_name)
             if success:
                 print(f"MIDI port opened: {port_name}")
+                # Switch to MIDI mode: set knobs to center (0 cents) and update labels
+                center_value = 500  # Middle of 0-1000 range = 0 cents
+                self.freq1_knob.setValue(center_value)
+                self.freq2_knob.setValue(center_value)
+                self.freq3_knob.setValue(center_value)
+                # Labels will be updated by update_frequency callbacks
         else:
             self.midi_handler.stop()
+            # Switch to drone mode: update labels to show frequency
+            self.freq1_label.setText(f"{self.freq1:.1f} Hz")
+            self.freq2_label.setText(f"{self.freq2:.1f} Hz")
+            self.freq3_label.setText(f"{self.freq3:.1f} Hz")
 
     def midi_note_to_freq(self, note):
         """Convert MIDI note number to frequency"""
@@ -1025,17 +1068,15 @@ class SineWaveGenerator(QMainWindow):
     def handle_midi_note_on(self, note, velocity):
         """Handle MIDI note on message"""
         self.current_note = note
-        freq = self.midi_note_to_freq(note)
+        base_freq = self.midi_note_to_freq(note)
 
-        # Set all oscillators to the note frequency
-        self.freq1 = freq
-        self.freq2 = freq
-        self.freq3 = freq
+        # Apply detune offsets to each oscillator
+        self.freq1 = self.apply_detune(base_freq, self.detune1)
+        self.freq2 = self.apply_detune(base_freq, self.detune2)
+        self.freq3 = self.apply_detune(base_freq, self.detune3)
 
-        # Update UI labels
-        self.freq1_label.setText(f"{self.freq1:.1f} Hz")
-        self.freq2_label.setText(f"{self.freq2:.1f} Hz")
-        self.freq3_label.setText(f"{self.freq3:.1f} Hz")
+        # Labels show detune in MIDI mode, not frequency
+        # (they're updated in update_frequency when knobs are moved)
 
         # Don't reset filter - let it maintain state for smooth transitions
 
