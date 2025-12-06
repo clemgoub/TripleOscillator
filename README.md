@@ -102,15 +102,30 @@ classDiagram
     class SineWaveGenerator {
         +sample_rate: int
         +freq1, freq2, freq3: float
+        +detune1, detune2, detune3: float
+        +octave1, octave2, octave3: int
         +waveform1, waveform2, waveform3: str
         +gain1, gain2, gain3: float
         +osc1_on, osc2_on, osc3_on: bool
         +env1, env2, env3: EnvelopeGenerator
         +filter: LowPassFilter
+        +midi_handler: MIDIHandler
         +init_ui()
         +audio_callback()
         +toggle_oscillator()
         +generate_waveform()
+        +apply_detune()
+        +apply_octave()
+        +handle_midi_note_on()
+    }
+
+    class MIDIHandler {
+        +port: MIDIPort
+        +running: bool
+        +note_on: Signal
+        +note_off: Signal
+        +start(port_name)
+        +stop()
     }
 
     class EnvelopeGenerator {
@@ -128,29 +143,36 @@ classDiagram
     class LowPassFilter {
         +cutoff: float
         +resonance: float
-        +y1, y2: float
-        +x1, x2: float
+        +zi: array
         +process(input_signal)
     }
 
     SineWaveGenerator "1" --> "3" EnvelopeGenerator : contains
     SineWaveGenerator "1" --> "1" LowPassFilter : contains
+    SineWaveGenerator "1" --> "1" MIDIHandler : contains
 ```
 
 ### Signal Flow
 
 ```mermaid
 graph LR
-    A[Oscillator 1<br/>Waveform Generator] --> D[Mixer<br/>Gain Control]
-    B[Oscillator 2<br/>Waveform Generator] --> D
-    C[Oscillator 3<br/>Waveform Generator] --> D
+    MIDI[MIDI Keyboard] -.->|note events| A
+    MIDI -.->|note events| B
+    MIDI -.->|note events| C
+
+    A[Oscillator 1<br/>Waveform Generator<br/>+Detune +Octave] --> D[Mixer<br/>Gain Control]
+    B[Oscillator 2<br/>Waveform Generator<br/>+Detune +Octave] --> D
+    C[Oscillator 3<br/>Waveform Generator<br/>+Detune +Octave] --> D
     D --> E[ADSR Envelope<br/>Amplitude Shaping]
     E --> F[Low-Pass Filter<br/>Frequency Shaping]
     F --> G[Audio Output<br/>Stereo 44.1kHz]
 
-    H[UI Controls] -.->|frequency| A
-    H -.->|frequency| B
-    H -.->|frequency| C
+    H[UI Controls] -.->|freq/detune| A
+    H -.->|freq/detune| B
+    H -.->|freq/detune| C
+    H -.->|octave| A
+    H -.->|octave| B
+    H -.->|octave| C
     H -.->|waveform| A
     H -.->|waveform| B
     H -.->|waveform| C
@@ -164,6 +186,7 @@ graph LR
 
 ```mermaid
 sequenceDiagram
+    participant MIDI as MIDI Keyboard
     participant UI as User Interface
     participant OSC as Oscillators
     participant ENV as ADSR Envelopes
@@ -171,22 +194,33 @@ sequenceDiagram
     participant FILT as Filter
     participant OUT as Audio Output
 
-    UI->>OSC: Set frequency, waveform
+    UI->>OSC: Set detune, octave, waveform
     UI->>ENV: Set attack, decay, sustain, release
     UI->>FILT: Set cutoff, resonance
 
+    MIDI->>OSC: MIDI Note On (base frequency)
+    OSC->>OSC: Apply detune + octave offset
+    MIDI->>ENV: Trigger envelope
+
     loop Every Audio Buffer (frames)
-        OSC->>OSC: Generate waveforms
+        OSC->>OSC: Generate waveforms at final freq
         OSC->>ENV: Apply envelope shaping
         ENV->>MIX: Mix oscillators with gain
         MIX->>FILT: Apply low-pass filter
         FILT->>OUT: Output stereo audio
     end
 
-    UI->>ENV: Button ON (trigger)
-    ENV->>ENV: Attack → Decay → Sustain
-    UI->>ENV: Button OFF (release)
-    ENV->>ENV: Release → Idle
+    alt Drone Mode (No MIDI)
+        UI->>ENV: Button ON (trigger)
+        ENV->>ENV: Attack → Decay → Sustain
+        UI->>ENV: Button OFF (release)
+        ENV->>ENV: Release → Idle
+    else MIDI Mode
+        MIDI->>ENV: Note On (trigger)
+        ENV->>ENV: Attack → Decay → Sustain
+        MIDI->>ENV: Note Off (release)
+        ENV->>ENV: Release → Idle
+    end
 ```
 
 ### Components

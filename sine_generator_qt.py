@@ -275,6 +275,7 @@ class SineWaveGenerator(QMainWindow):
         self.osc1_on = False
         self.waveform1 = "Sine"
         self.detune1 = 0.0  # Detune in cents (-100 to +100)
+        self.octave1 = 0  # Octave offset (-3 to +3)
 
         # Oscillator 2 parameters (phase offset to reduce constructive interference)
         self.freq2 = 440.0
@@ -282,6 +283,7 @@ class SineWaveGenerator(QMainWindow):
         self.osc2_on = False
         self.waveform2 = "Sine"
         self.detune2 = 0.0  # Detune in cents (-100 to +100)
+        self.octave2 = 0  # Octave offset (-3 to +3)
 
         # Oscillator 3 parameters (phase offset to reduce constructive interference)
         self.freq3 = 440.0
@@ -289,6 +291,7 @@ class SineWaveGenerator(QMainWindow):
         self.osc3_on = False
         self.waveform3 = "Sine"
         self.detune3 = 0.0  # Detune in cents (-100 to +100)
+        self.octave3 = 0  # Octave offset (-3 to +3)
 
         # Mixer parameters (0.0 to 1.0)
         self.gain1 = 0.33
@@ -503,6 +506,74 @@ class SineWaveGenerator(QMainWindow):
             self.freq3_label = freq_label
 
         layout.addWidget(freq_label)
+
+        # Octave controls
+        octave_layout = QHBoxLayout()
+        octave_layout.addStretch(1)
+
+        # Octave down button
+        octave_down_btn = QPushButton("-")
+        octave_down_btn.setFixedSize(25, 25)
+        octave_down_btn.setFont(QFont("Arial", 12, QFont.Bold))
+        octave_down_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c3c3c;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #4c4c4c;
+            }
+            QPushButton:pressed {
+                background-color: #555555;
+            }
+        """)
+
+        # Octave label
+        octave_label = QLabel("0")
+        octave_label.setAlignment(Qt.AlignCenter)
+        octave_label.setFont(QFont("Arial", 9))
+        octave_label.setFixedWidth(30)
+
+        # Octave up button
+        octave_up_btn = QPushButton("+")
+        octave_up_btn.setFixedSize(25, 25)
+        octave_up_btn.setFont(QFont("Arial", 12, QFont.Bold))
+        octave_up_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c3c3c;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #4c4c4c;
+            }
+            QPushButton:pressed {
+                background-color: #555555;
+            }
+        """)
+
+        # Connect buttons and store references
+        if osc_num == 1:
+            self.octave1_label = octave_label
+            octave_down_btn.clicked.connect(lambda: self.change_octave(1, -1))
+            octave_up_btn.clicked.connect(lambda: self.change_octave(1, 1))
+        elif osc_num == 2:
+            self.octave2_label = octave_label
+            octave_down_btn.clicked.connect(lambda: self.change_octave(2, -1))
+            octave_up_btn.clicked.connect(lambda: self.change_octave(2, 1))
+        else:
+            self.octave3_label = octave_label
+            octave_down_btn.clicked.connect(lambda: self.change_octave(3, -1))
+            octave_up_btn.clicked.connect(lambda: self.change_octave(3, 1))
+
+        octave_layout.addWidget(octave_down_btn)
+        octave_layout.addWidget(octave_label)
+        octave_layout.addWidget(octave_up_btn)
+        octave_layout.addStretch(1)
+        layout.addLayout(octave_layout)
 
         # Range labels
         range_layout = QHBoxLayout()
@@ -793,6 +864,42 @@ class SineWaveGenerator(QMainWindow):
         """Apply detune in cents to a base frequency"""
         return base_freq * (2.0 ** (detune_cents / 1200.0))
 
+    def apply_octave(self, freq, octave_offset):
+        """Apply octave offset to a frequency"""
+        return freq * (2.0 ** octave_offset)
+
+    def change_octave(self, osc_num, direction):
+        """Change octave offset for an oscillator (+1 or -1)"""
+        if osc_num == 1:
+            self.octave1 = max(-3, min(3, self.octave1 + direction))
+            self.octave1_label.setText(f"{self.octave1:+d}" if self.octave1 != 0 else "0")
+            # Recalculate frequency with new octave
+            if self.midi_handler.running and self.current_note is not None:
+                base_freq = self.midi_note_to_freq(self.current_note)
+                self.freq1 = self.apply_octave(self.apply_detune(base_freq, self.detune1), self.octave1)
+            else:
+                # In drone mode, apply octave to current frequency
+                base_freq = self.freq1 / (2.0 ** (self.octave1 - direction))  # Undo previous octave
+                self.freq1 = self.apply_octave(base_freq, self.octave1)
+        elif osc_num == 2:
+            self.octave2 = max(-3, min(3, self.octave2 + direction))
+            self.octave2_label.setText(f"{self.octave2:+d}" if self.octave2 != 0 else "0")
+            if self.midi_handler.running and self.current_note is not None:
+                base_freq = self.midi_note_to_freq(self.current_note)
+                self.freq2 = self.apply_octave(self.apply_detune(base_freq, self.detune2), self.octave2)
+            else:
+                base_freq = self.freq2 / (2.0 ** (self.octave2 - direction))
+                self.freq2 = self.apply_octave(base_freq, self.octave2)
+        else:
+            self.octave3 = max(-3, min(3, self.octave3 + direction))
+            self.octave3_label.setText(f"{self.octave3:+d}" if self.octave3 != 0 else "0")
+            if self.midi_handler.running and self.current_note is not None:
+                base_freq = self.midi_note_to_freq(self.current_note)
+                self.freq3 = self.apply_octave(self.apply_detune(base_freq, self.detune3), self.octave3)
+            else:
+                base_freq = self.freq3 / (2.0 ** (self.octave3 - direction))
+                self.freq3 = self.apply_octave(base_freq, self.octave3)
+
     def update_frequency(self, osc_num, value):
         """Update frequency from knob - acts as detune in MIDI mode, frequency in drone mode"""
         if self.midi_handler.running:
@@ -810,15 +917,15 @@ class SineWaveGenerator(QMainWindow):
                 self.detune3 = detune_cents
                 self.freq3_label.setText(f"{detune_cents:+.1f} cents")
 
-            # If a note is currently playing, update the frequencies with new detune
+            # If a note is currently playing, update the frequencies with new detune and octave
             if self.current_note is not None:
                 base_freq = self.midi_note_to_freq(self.current_note)
                 if osc_num == 1:
-                    self.freq1 = self.apply_detune(base_freq, self.detune1)
+                    self.freq1 = self.apply_octave(self.apply_detune(base_freq, self.detune1), self.octave1)
                 elif osc_num == 2:
-                    self.freq2 = self.apply_detune(base_freq, self.detune2)
+                    self.freq2 = self.apply_octave(self.apply_detune(base_freq, self.detune2), self.octave2)
                 else:
-                    self.freq3 = self.apply_detune(base_freq, self.detune3)
+                    self.freq3 = self.apply_octave(self.apply_detune(base_freq, self.detune3), self.octave3)
         else:
             # Drone mode: knob controls absolute frequency (original behavior)
             slider_position = float(value) / 1000.0
@@ -826,13 +933,14 @@ class SineWaveGenerator(QMainWindow):
             frequency = 10 ** log_freq
 
             if osc_num == 1:
-                self.freq1 = frequency
+                # Apply octave offset in drone mode too
+                self.freq1 = self.apply_octave(frequency, self.octave1)
                 self.freq1_label.setText(f"{self.freq1:.1f} Hz")
             elif osc_num == 2:
-                self.freq2 = frequency
+                self.freq2 = self.apply_octave(frequency, self.octave2)
                 self.freq2_label.setText(f"{self.freq2:.1f} Hz")
             else:
-                self.freq3 = frequency
+                self.freq3 = self.apply_octave(frequency, self.octave3)
                 self.freq3_label.setText(f"{self.freq3:.1f} Hz")
 
     def update_waveform(self, osc_num, waveform):
@@ -1070,10 +1178,10 @@ class SineWaveGenerator(QMainWindow):
         self.current_note = note
         base_freq = self.midi_note_to_freq(note)
 
-        # Apply detune offsets to each oscillator
-        self.freq1 = self.apply_detune(base_freq, self.detune1)
-        self.freq2 = self.apply_detune(base_freq, self.detune2)
-        self.freq3 = self.apply_detune(base_freq, self.detune3)
+        # Apply detune and octave offsets to each oscillator
+        self.freq1 = self.apply_octave(self.apply_detune(base_freq, self.detune1), self.octave1)
+        self.freq2 = self.apply_octave(self.apply_detune(base_freq, self.detune2), self.octave2)
+        self.freq3 = self.apply_octave(self.apply_detune(base_freq, self.detune3), self.octave3)
 
         # Labels show detune in MIDI mode, not frequency
         # (they're updated in update_frequency when knobs are moved)
