@@ -469,10 +469,11 @@ class SineWaveGenerator(QMainWindow):
         title_label.setFont(QFont("Arial", 12, QFont.Bold))
         layout.addWidget(title_label)
 
-        # Waveform selector
+        # Waveform selector (33% narrower)
         waveform_combo = QComboBox()
         waveform_combo.addItems(["Sine", "Sawtooth", "Square"])
         waveform_combo.setFont(QFont("Arial", 9))
+        waveform_combo.setMaximumWidth(80)  # Limit width to make it narrower
 
         if osc_num == 1:
             self.waveform1_combo = waveform_combo
@@ -484,20 +485,66 @@ class SineWaveGenerator(QMainWindow):
             self.waveform3_combo = waveform_combo
             waveform_combo.currentTextChanged.connect(lambda w: self.update_waveform(3, w))
 
-        layout.addWidget(waveform_combo)
+        # Center the waveform selector
+        waveform_layout = QHBoxLayout()
+        waveform_layout.addStretch(1)
+        waveform_layout.addWidget(waveform_combo)
+        waveform_layout.addStretch(1)
+        layout.addLayout(waveform_layout)
 
         layout.addStretch(1)
 
-        # Frequency knob
+        # On/Off button (on top of knob, 33% smaller)
+        osc_button = QPushButton("OFF")
+        osc_button.setFont(QFont("Arial", 8, QFont.Bold))
+        osc_button.setFixedSize(33, 33)
+        osc_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3c3c3c;
+                color: #888888;
+                border: none;
+                border-radius: 17px;
+            }
+            QPushButton:hover {
+                background-color: #4c4c4c;
+            }
+        """)
+
+        if osc_num == 1:
+            self.osc1_button = osc_button
+            osc_button.clicked.connect(lambda: self.toggle_oscillator(1))
+        elif osc_num == 2:
+            self.osc2_button = osc_button
+            osc_button.clicked.connect(lambda: self.toggle_oscillator(2))
+        else:
+            self.osc3_button = osc_button
+            osc_button.clicked.connect(lambda: self.toggle_oscillator(3))
+
+        # Center the button
+        button_layout = QHBoxLayout()
+        button_layout.addStretch(1)
+        button_layout.addWidget(osc_button)
+        button_layout.addStretch(1)
+        layout.addLayout(button_layout)
+
+        # Frequency knob (Large: 100x100, use 0-100 range for clean appearance)
         freq_knob = QDial()
         freq_knob.setMinimum(0)
-        freq_knob.setMaximum(1000)
+        freq_knob.setMaximum(100)
         freq_knob.setNotchesVisible(True)
         freq_knob.setWrapping(False)
-        freq_knob.setFixedSize(70, 70)
+        freq_knob.setFixedSize(100, 100)
+        # Disable native styling to get clean knob appearance
+        freq_knob.setAttribute(Qt.WA_MacShowFocusRect, False)
+        freq_knob.setStyleSheet("""
+            QDial {
+                background: none;
+                border: none;
+            }
+        """)
 
-        # Set initial position for 440 Hz
-        initial_position = int(1000 * (np.log10(440) - self.min_log) / (self.max_log - self.min_log))
+        # Set initial position for 440 Hz (map 0-100 to log range)
+        initial_position = int(100 * (np.log10(440) - self.min_log) / (self.max_log - self.min_log))
         freq_knob.setValue(initial_position)
 
         # Connect to appropriate oscillator
@@ -602,39 +649,6 @@ class SineWaveGenerator(QMainWindow):
 
         layout.addStretch(1)
 
-        # On/Off button
-        osc_button = QPushButton("OFF")
-        osc_button.setFont(QFont("Arial", 9, QFont.Bold))
-        osc_button.setFixedSize(50, 50)
-        osc_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3c3c3c;
-                color: #888888;
-                border: none;
-                border-radius: 25px;
-            }
-            QPushButton:hover {
-                background-color: #4c4c4c;
-            }
-        """)
-
-        if osc_num == 1:
-            self.osc1_button = osc_button
-            osc_button.clicked.connect(lambda: self.toggle_oscillator(1))
-        elif osc_num == 2:
-            self.osc2_button = osc_button
-            osc_button.clicked.connect(lambda: self.toggle_oscillator(2))
-        else:
-            self.osc3_button = osc_button
-            osc_button.clicked.connect(lambda: self.toggle_oscillator(3))
-
-        # Center the button
-        button_layout = QHBoxLayout()
-        button_layout.addStretch(1)
-        button_layout.addWidget(osc_button)
-        button_layout.addStretch(1)
-        layout.addLayout(button_layout)
-
         return column
 
     def create_mixer_column(self):
@@ -652,7 +666,7 @@ class SineWaveGenerator(QMainWindow):
 
         layout.addStretch(1)
 
-        # Gain 1 knob
+        # Gain 1 knob (Small: 50x50)
         gain1_label = QLabel("Osc 1")
         gain1_label.setAlignment(Qt.AlignCenter)
         gain1_label.setFont(QFont("Arial", 9))
@@ -663,7 +677,12 @@ class SineWaveGenerator(QMainWindow):
         self.gain1_knob.setMaximum(100)
         self.gain1_knob.setNotchesVisible(True)
         self.gain1_knob.setWrapping(False)
-        self.gain1_knob.setFixedSize(70, 70)
+        self.gain1_knob.setFixedSize(50, 50)
+        self.gain1_knob.setStyleSheet("""
+            QDial {
+                background: transparent;
+            }
+        """)
         self.gain1_knob.setValue(33)
         self.gain1_knob.valueChanged.connect(lambda v: self.update_gain(1, v))
 
@@ -680,7 +699,7 @@ class SineWaveGenerator(QMainWindow):
 
         layout.addStretch(1)
 
-        # Gain 2 knob
+        # Gain 2 knob (Small: 50x50)
         gain2_label = QLabel("Osc 2")
         gain2_label.setAlignment(Qt.AlignCenter)
         gain2_label.setFont(QFont("Arial", 9))
@@ -691,7 +710,12 @@ class SineWaveGenerator(QMainWindow):
         self.gain2_knob.setMaximum(100)
         self.gain2_knob.setNotchesVisible(True)
         self.gain2_knob.setWrapping(False)
-        self.gain2_knob.setFixedSize(70, 70)
+        self.gain2_knob.setFixedSize(50, 50)
+        self.gain2_knob.setStyleSheet("""
+            QDial {
+                background: transparent;
+            }
+        """)
         self.gain2_knob.setValue(33)
         self.gain2_knob.valueChanged.connect(lambda v: self.update_gain(2, v))
 
@@ -708,7 +732,7 @@ class SineWaveGenerator(QMainWindow):
 
         layout.addStretch(1)
 
-        # Gain 3 knob
+        # Gain 3 knob (Small: 50x50)
         gain3_label = QLabel("Osc 3")
         gain3_label.setAlignment(Qt.AlignCenter)
         gain3_label.setFont(QFont("Arial", 9))
@@ -719,7 +743,12 @@ class SineWaveGenerator(QMainWindow):
         self.gain3_knob.setMaximum(100)
         self.gain3_knob.setNotchesVisible(True)
         self.gain3_knob.setWrapping(False)
-        self.gain3_knob.setFixedSize(70, 70)
+        self.gain3_knob.setFixedSize(50, 50)
+        self.gain3_knob.setStyleSheet("""
+            QDial {
+                background: transparent;
+            }
+        """)
         self.gain3_knob.setValue(33)
         self.gain3_knob.valueChanged.connect(lambda v: self.update_gain(3, v))
 
@@ -736,7 +765,7 @@ class SineWaveGenerator(QMainWindow):
 
         layout.addStretch(1)
 
-        # Master Volume knob
+        # Master Volume knob (Medium: 70x70)
         master_label = QLabel("Master")
         master_label.setAlignment(Qt.AlignCenter)
         master_label.setFont(QFont("Arial", 9))
@@ -748,6 +777,11 @@ class SineWaveGenerator(QMainWindow):
         self.master_volume_knob.setNotchesVisible(True)
         self.master_volume_knob.setWrapping(False)
         self.master_volume_knob.setFixedSize(70, 70)
+        self.master_volume_knob.setStyleSheet("""
+            QDial {
+                background: transparent;
+            }
+        """)
         self.master_volume_knob.setValue(50)
         self.master_volume_knob.valueChanged.connect(self.update_master_volume)
 
@@ -783,16 +817,16 @@ class SineWaveGenerator(QMainWindow):
         knobs_layout = QHBoxLayout()
         knobs_layout.setSpacing(15)
 
-        # Attack
-        attack_container = self.create_knob_with_label("Attack", 0, 2000, 10,
-                                                        lambda v: self.update_adsr('attack', v))
+        # Attack (use 0-100 range internally, scale to 0-2000 in callback)
+        attack_container = self.create_knob_with_label("Attack", 0, 100, 1,
+                                                        lambda v: self.update_adsr('attack', v * 20))
         knobs_layout.addWidget(attack_container)
         self.attack_knob = attack_container.findChild(QDial)
         self.attack_label_value = attack_container.findChild(QLabel, "value_label")
 
-        # Decay
-        decay_container = self.create_knob_with_label("Decay", 0, 2000, 100,
-                                                       lambda v: self.update_adsr('decay', v))
+        # Decay (use 0-100 range internally, scale to 0-2000 in callback)
+        decay_container = self.create_knob_with_label("Decay", 0, 100, 5,
+                                                       lambda v: self.update_adsr('decay', v * 20))
         knobs_layout.addWidget(decay_container)
         self.decay_knob = decay_container.findChild(QDial)
         self.decay_label_value = decay_container.findChild(QLabel, "value_label")
@@ -804,9 +838,9 @@ class SineWaveGenerator(QMainWindow):
         self.sustain_knob = sustain_container.findChild(QDial)
         self.sustain_label_value = sustain_container.findChild(QLabel, "value_label")
 
-        # Release
-        release_container = self.create_knob_with_label("Release", 0, 5000, 300,
-                                                         lambda v: self.update_adsr('release', v))
+        # Release (use 0-100 range internally, scale to 0-5000 in callback)
+        release_container = self.create_knob_with_label("Release", 0, 100, 6,
+                                                         lambda v: self.update_adsr('release', v * 50))
         knobs_layout.addWidget(release_container)
         self.release_knob = release_container.findChild(QDial)
         self.release_label_value = release_container.findChild(QLabel, "value_label")
@@ -832,16 +866,16 @@ class SineWaveGenerator(QMainWindow):
         knobs_layout = QHBoxLayout()
         knobs_layout.setSpacing(15)
 
-        # Cutoff
-        cutoff_container = self.create_knob_with_label("Cutoff", 20, 5000, 5000,
-                                                        lambda v: self.update_filter('cutoff', v))
+        # Cutoff (Large: 100x100, use 0-100 range internally, scale to 20-5000 logarithmically)
+        cutoff_container = self.create_knob_with_label("Cutoff", 0, 100, 100,
+                                                        lambda v: self.update_filter('cutoff', int(20 * (250 ** (v/100)))), size=100)
         knobs_layout.addWidget(cutoff_container)
         self.cutoff_knob = cutoff_container.findChild(QDial)
         self.cutoff_label_value = cutoff_container.findChild(QLabel, "value_label")
 
-        # Resonance
+        # Resonance (Small: 50x50)
         resonance_container = self.create_knob_with_label("Resonance", 0, 100, 0,
-                                                           lambda v: self.update_filter('resonance', v))
+                                                           lambda v: self.update_filter('resonance', v), size=50)
         knobs_layout.addWidget(resonance_container)
         self.resonance_knob = resonance_container.findChild(QDial)
         self.resonance_label_value = resonance_container.findChild(QLabel, "value_label")
@@ -850,7 +884,7 @@ class SineWaveGenerator(QMainWindow):
 
         return section
 
-    def create_knob_with_label(self, name, min_val, max_val, initial_val, callback):
+    def create_knob_with_label(self, name, min_val, max_val, initial_val, callback, size=70):
         """Helper to create a knob with label and value display"""
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -869,7 +903,15 @@ class SineWaveGenerator(QMainWindow):
         knob.setValue(initial_val)
         knob.setNotchesVisible(True)
         knob.setWrapping(False)
-        knob.setFixedSize(80, 80)
+        knob.setFixedSize(size, size)
+        # Disable native styling to get clean knob appearance
+        knob.setAttribute(Qt.WA_MacShowFocusRect, False)
+        knob.setStyleSheet("""
+            QDial {
+                background: none;
+                border: none;
+            }
+        """)
         knob.valueChanged.connect(callback)
 
         knob_layout = QHBoxLayout()
@@ -946,8 +988,8 @@ class SineWaveGenerator(QMainWindow):
         """Update frequency from knob - acts as detune in MIDI mode, frequency in drone mode"""
         if self.midi_handler.running:
             # MIDI mode: knob controls detune in cents (-100 to +100)
-            # Map 0-1000 slider to -100 to +100 cents
-            detune_cents = (float(value) / 1000.0) * 200.0 - 100.0
+            # Map 0-100 slider to -100 to +100 cents
+            detune_cents = (float(value) / 100.0) * 200.0 - 100.0
 
             if osc_num == 1:
                 self.detune1 = detune_cents
@@ -969,8 +1011,9 @@ class SineWaveGenerator(QMainWindow):
                 else:
                     self.freq3 = self.apply_octave(self.apply_detune(base_freq, self.detune3), self.octave3)
         else:
-            # Drone mode: knob controls absolute frequency (original behavior)
-            slider_position = float(value) / 1000.0
+            # Drone mode: knob controls absolute frequency
+            # Map 0-100 slider to logarithmic frequency range
+            slider_position = float(value) / 100.0
             log_freq = self.min_log + slider_position * (self.max_log - self.min_log)
             frequency = 10 ** log_freq
 
@@ -1142,7 +1185,7 @@ class SineWaveGenerator(QMainWindow):
                     background-color: #f44336;
                     color: white;
                     border: none;
-                    border-radius: 25px;
+                    border-radius: 17px;
                 }
                 QPushButton:hover {
                     background-color: #da190b;
@@ -1155,7 +1198,7 @@ class SineWaveGenerator(QMainWindow):
                     background-color: #3c3c3c;
                     color: #888888;
                     border: none;
-                    border-radius: 25px;
+                    border-radius: 17px;
                 }
                 QPushButton:hover {
                     background-color: #4c4c4c;
@@ -1246,7 +1289,56 @@ class SineWaveGenerator(QMainWindow):
             success = self.midi_handler.start(port_name)
             if success:
                 print(f"MIDI port opened: {port_name}")
-                # Switch to MIDI mode: set knobs to center (0 cents) and update labels
+                # Switch to MIDI mode: turn off all oscillators and release envelopes
+                if self.osc1_on:
+                    self.osc1_on = False
+                    self.osc1_button.setText("OFF")
+                    self.osc1_button.setStyleSheet("""
+                        QPushButton {
+                            background-color: #3c3c3c;
+                            color: #888888;
+                            border: none;
+                            border-radius: 17px;
+                        }
+                        QPushButton:hover {
+                            background-color: #4c4c4c;
+                        }
+                    """)
+                    self.env1.release_note()
+
+                if self.osc2_on:
+                    self.osc2_on = False
+                    self.osc2_button.setText("OFF")
+                    self.osc2_button.setStyleSheet("""
+                        QPushButton {
+                            background-color: #3c3c3c;
+                            color: #888888;
+                            border: none;
+                            border-radius: 17px;
+                        }
+                        QPushButton:hover {
+                            background-color: #4c4c4c;
+                        }
+                    """)
+                    self.env2.release_note()
+
+                if self.osc3_on:
+                    self.osc3_on = False
+                    self.osc3_button.setText("OFF")
+                    self.osc3_button.setStyleSheet("""
+                        QPushButton {
+                            background-color: #3c3c3c;
+                            color: #888888;
+                            border: none;
+                            border-radius: 17px;
+                        }
+                        QPushButton:hover {
+                            background-color: #4c4c4c;
+                        }
+                    """)
+                    self.env3.release_note()
+
+                # Set knobs to center (0 cents) and update labels
                 center_value = 500  # Middle of 0-1000 range = 0 cents
                 self.freq1_knob.setValue(center_value)
                 self.freq2_knob.setValue(center_value)
