@@ -1,6 +1,6 @@
 # Triple Oscillator Synth
 
-A subtractive synthesizer built with Python and PyQt5. Three independent oscillators with multiple waveforms, ADSR envelope shaping, and a resonant low-pass filter.
+A [vibe-coded](https://en.wikipedia.org/wiki/Vibe_coding#:~:text=In%20September%202025%2C%20Fast%20Company,AI%2Dgenerated%20vibe%2Dcode.) subtractive synthesizer built with Python and PyQt5. Three independent oscillators with multiple waveforms, ADSR envelope shaping, and a resonant low-pass filter.
 
 ![Triple Oscillator Synth](screenshot.png)
 
@@ -304,4 +304,4 @@ MIT License - feel free to use and modify!
 
 ## Credits
 
-Built as a learning project exploring audio synthesis, in majority vibecoded using Claude code.
+Built as a learning project exploring audio synthesis, in majority [vibecoded](https://en.wikipedia.org/wiki/Vibe_coding#:~:text=In%20September%202025%2C%20Fast%20Company,AI%2Dgenerated%20vibe%2Dcode.) using Claude code.
