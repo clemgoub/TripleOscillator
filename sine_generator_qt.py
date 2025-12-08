@@ -90,7 +90,8 @@ class EnvelopeGenerator:
         """Trigger note on (start attack phase)"""
         self.phase = 'attack'
         self.samples_in_phase = 0
-        self.attack_start_level = self.level  # Remember current level for smooth retriggering
+        self.level = 0.0  # Reset to 0 for standard monophonic synth behavior
+        self.attack_start_level = 0.0  # Always start attack from 0
 
     def release_note(self):
         """Trigger note off (start release phase)"""
@@ -98,6 +99,12 @@ class EnvelopeGenerator:
             self.phase = 'release'
             self.samples_in_phase = 0
             self.release_start_level = self.level  # Remember current level for smooth release
+
+    def force_reset(self):
+        """Force envelope to idle state (used when oscillator is turned off)"""
+        self.phase = 'idle'
+        self.level = 0.0
+        self.samples_in_phase = 0
 
     def process(self, num_samples):
         """Generate envelope for num_samples (vectorized for performance)"""
@@ -469,11 +476,10 @@ class SineWaveGenerator(QMainWindow):
         title_label.setFont(QFont("Arial", 12, QFont.Bold))
         layout.addWidget(title_label)
 
-        # Waveform selector (33% narrower)
+        # Waveform selector
         waveform_combo = QComboBox()
         waveform_combo.addItems(["Sine", "Sawtooth", "Square"])
         waveform_combo.setFont(QFont("Arial", 9))
-        waveform_combo.setMaximumWidth(80)  # Limit width to make it narrower
 
         if osc_num == 1:
             self.waveform1_combo = waveform_combo
@@ -503,7 +509,11 @@ class SineWaveGenerator(QMainWindow):
                 background-color: #3c3c3c;
                 color: #888888;
                 border: none;
-                border-radius: 17px;
+                border-radius: 16px;
+                min-width: 33px;
+                max-width: 33px;
+                min-height: 33px;
+                max-height: 33px;
             }
             QPushButton:hover {
                 background-color: #4c4c4c;
@@ -692,11 +702,6 @@ class SineWaveGenerator(QMainWindow):
         knob1_layout.addStretch(1)
         layout.addLayout(knob1_layout)
 
-        self.gain1_label = QLabel("33%")
-        self.gain1_label.setAlignment(Qt.AlignCenter)
-        self.gain1_label.setFont(QFont("Arial", 9, QFont.Bold))
-        layout.addWidget(self.gain1_label)
-
         layout.addStretch(1)
 
         # Gain 2 knob (Small: 50x50)
@@ -724,11 +729,6 @@ class SineWaveGenerator(QMainWindow):
         knob2_layout.addWidget(self.gain2_knob)
         knob2_layout.addStretch(1)
         layout.addLayout(knob2_layout)
-
-        self.gain2_label = QLabel("33%")
-        self.gain2_label.setAlignment(Qt.AlignCenter)
-        self.gain2_label.setFont(QFont("Arial", 9, QFont.Bold))
-        layout.addWidget(self.gain2_label)
 
         layout.addStretch(1)
 
@@ -758,11 +758,6 @@ class SineWaveGenerator(QMainWindow):
         knob3_layout.addStretch(1)
         layout.addLayout(knob3_layout)
 
-        self.gain3_label = QLabel("33%")
-        self.gain3_label.setAlignment(Qt.AlignCenter)
-        self.gain3_label.setFont(QFont("Arial", 9, QFont.Bold))
-        layout.addWidget(self.gain3_label)
-
         layout.addStretch(1)
 
         # Master Volume knob (Medium: 70x70)
@@ -790,11 +785,6 @@ class SineWaveGenerator(QMainWindow):
         master_knob_layout.addWidget(self.master_volume_knob)
         master_knob_layout.addStretch(1)
         layout.addLayout(master_knob_layout)
-
-        self.master_volume_label = QLabel("50%")
-        self.master_volume_label.setAlignment(Qt.AlignCenter)
-        self.master_volume_label.setFont(QFont("Arial", 9, QFont.Bold))
-        layout.addWidget(self.master_volume_label)
 
         layout.addStretch(1)
 
@@ -912,7 +902,19 @@ class SineWaveGenerator(QMainWindow):
                 border: none;
             }
         """)
-        knob.valueChanged.connect(callback)
+
+        # Value label
+        value_label = QLabel(self.format_knob_value(name, initial_val))
+        value_label.setObjectName("value_label")
+        value_label.setAlignment(Qt.AlignCenter)
+        value_label.setFont(QFont("Arial", 10, QFont.Bold))
+
+        # Combined callback that updates both the value and the label
+        def combined_callback(value):
+            callback(value)
+            value_label.setText(self.format_knob_value(name, value))
+
+        knob.valueChanged.connect(combined_callback)
 
         knob_layout = QHBoxLayout()
         knob_layout.addStretch(1)
@@ -920,11 +922,6 @@ class SineWaveGenerator(QMainWindow):
         knob_layout.addStretch(1)
         layout.addLayout(knob_layout)
 
-        # Value label
-        value_label = QLabel(self.format_knob_value(name, initial_val))
-        value_label.setObjectName("value_label")
-        value_label.setAlignment(Qt.AlignCenter)
-        value_label.setFont(QFont("Arial", 10, QFont.Bold))
         layout.addWidget(value_label)
 
         return container
@@ -932,13 +929,17 @@ class SineWaveGenerator(QMainWindow):
     def format_knob_value(self, knob_name, value):
         """Format knob value for display"""
         if knob_name == "Attack" or knob_name == "Decay":
-            return f"{value}ms"
+            # Scale 0-100 to 0-2000ms
+            return f"{value * 20}ms"
         elif knob_name == "Release":
-            return f"{value}ms"
+            # Scale 0-100 to 0-5000ms
+            return f"{value * 50}ms"
         elif knob_name == "Sustain":
             return f"{value}%"
         elif knob_name == "Cutoff":
-            return f"{value}Hz"
+            # Apply logarithmic scaling for cutoff (20-5000 Hz)
+            freq = int(20 * (250 ** (value/100)))
+            return f"{freq}Hz"
         elif knob_name == "Resonance":
             return f"{value}%"
         else:
@@ -1043,18 +1044,14 @@ class SineWaveGenerator(QMainWindow):
 
         if osc_num == 1:
             self.gain1 = gain
-            self.gain1_label.setText(f"{value}%")
         elif osc_num == 2:
             self.gain2 = gain
-            self.gain2_label.setText(f"{value}%")
         else:
             self.gain3 = gain
-            self.gain3_label.setText(f"{value}%")
 
     def update_master_volume(self, value):
         """Update master volume from knob (0-100%)"""
         self.master_volume = value / 100.0
-        self.master_volume_label.setText(f"{value}%")
 
     def update_adsr(self, param, value):
         """Update ADSR parameters"""
@@ -1063,31 +1060,25 @@ class SineWaveGenerator(QMainWindow):
             self.env1.attack = value / 1000.0
             self.env2.attack = value / 1000.0
             self.env3.attack = value / 1000.0
-            self.attack_label_value.setText(f"{value}ms")
         elif param == 'decay':
             self.env1.decay = value / 1000.0
             self.env2.decay = value / 1000.0
             self.env3.decay = value / 1000.0
-            self.decay_label_value.setText(f"{value}ms")
         elif param == 'sustain':
             self.env1.sustain = value / 100.0
             self.env2.sustain = value / 100.0
             self.env3.sustain = value / 100.0
-            self.sustain_label_value.setText(f"{value}%")
         elif param == 'release':
             self.env1.release = value / 1000.0
             self.env2.release = value / 1000.0
             self.env3.release = value / 1000.0
-            self.release_label_value.setText(f"{value}ms")
 
     def update_filter(self, param, value):
         """Update filter parameters"""
         if param == 'cutoff':
             self.filter.cutoff = float(value)
-            self.cutoff_label_value.setText(f"{value}Hz")
         elif param == 'resonance':
             self.filter.resonance = value / 100.0
-            self.resonance_label_value.setText(f"{value}%")
 
     def generate_waveform(self, waveform_type, phase, phase_increment, frames):
         """Generate a waveform based on type"""
@@ -1157,7 +1148,7 @@ class SineWaveGenerator(QMainWindow):
                 self.phase1 = 0  # Osc1 starts at 0
                 self.env1.trigger()
             else:
-                self.env1.release_note()
+                self.env1.force_reset()  # Force to idle so next trigger starts from 0
         elif osc_num == 2:
             self.osc2_on = not self.osc2_on
             button = self.osc2_button
@@ -1165,7 +1156,7 @@ class SineWaveGenerator(QMainWindow):
                 self.phase2 = 2 * np.pi / 3  # Phase offset to reduce interference
                 self.env2.trigger()
             else:
-                self.env2.release_note()
+                self.env2.force_reset()  # Force to idle so next trigger starts from 0
         else:
             self.osc3_on = not self.osc3_on
             button = self.osc3_button
@@ -1173,7 +1164,7 @@ class SineWaveGenerator(QMainWindow):
                 self.phase3 = 4 * np.pi / 3  # Phase offset to reduce interference
                 self.env3.trigger()
             else:
-                self.env3.release_note()
+                self.env3.force_reset()  # Force to idle so next trigger starts from 0
 
         # Update button appearance
         is_on = self.osc1_on if osc_num == 1 else (self.osc2_on if osc_num == 2 else self.osc3_on)
@@ -1185,7 +1176,11 @@ class SineWaveGenerator(QMainWindow):
                     background-color: #f44336;
                     color: white;
                     border: none;
-                    border-radius: 17px;
+                    border-radius: 16px;
+                    min-width: 33px;
+                    max-width: 33px;
+                    min-height: 33px;
+                    max-height: 33px;
                 }
                 QPushButton:hover {
                     background-color: #da190b;
@@ -1198,7 +1193,11 @@ class SineWaveGenerator(QMainWindow):
                     background-color: #3c3c3c;
                     color: #888888;
                     border: none;
-                    border-radius: 17px;
+                    border-radius: 16px;
+                    min-width: 33px;
+                    max-width: 33px;
+                    min-height: 33px;
+                    max-height: 33px;
                 }
                 QPushButton:hover {
                     background-color: #4c4c4c;

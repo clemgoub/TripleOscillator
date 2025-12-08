@@ -13,11 +13,22 @@ A professional-grade subtractive synthesizer built with Python and PyQt5. Featur
   - Sawtooth: Bright, buzzy sounds
   - Square: Hollow, clarinet-like tones
 - **Frequency Range**: 20 Hz to 5000 Hz (logarithmic scale)
+- **Dual-Mode Frequency Controls**:
+  - Drone mode (no MIDI): Absolute frequency control (20Hz-5kHz)
+  - MIDI mode: Detune control (-100 to +100 cents)
+- **Octave Switches**: Independent octave controls per oscillator (-3 to +3 octaves)
 - **Real-time Frequency Adjustment**: Smooth frequency changes without clicks
 - **Individual On/Off Controls**: Per-oscillator activation with visual feedback
 
+### MIDI Support
+- **MIDI Keyboard Input**: Play notes with any MIDI keyboard
+- **Automatic Mode Switching**: Frequency knobs become detune controls in MIDI mode
+- **Monophonic Voice**: Classic monophonic synthesizer behavior with proper envelope retriggering
+- **Octave Layering**: Combine oscillators at different octaves for rich harmonic textures
+
 ### Mixer
 - **3-Channel Mixer**: Independent volume control (0-100%) for each oscillator
+- **Master Volume**: Global output level control (0-100%)
 - **Real-time Mixing**: Adjust oscillator levels on the fly
 
 ### ADSR Envelope Generator
@@ -137,6 +148,7 @@ classDiagram
         +level: float
         +trigger()
         +release_note()
+        +force_reset()
         +process(num_samples)
     }
 
@@ -255,8 +267,11 @@ sine-synth/
 
 - Python 3.7+
 - numpy >= 1.20.0
+- scipy >= 1.7.0
 - sounddevice >= 0.4.5
 - PyQt5 >= 5.15.0
+- mido >= 1.3.0
+- python-rtmidi >= 1.5.0
 
 ## Development Journey
 
@@ -267,17 +282,21 @@ This project started as a simple sine wave generator and evolved into a full sub
 3. **Multiple Oscillators**: Expanded to 3 oscillators with waveform selection
 4. **ADSR Envelope**: Added amplitude envelope shaping
 5. **Filter**: Implemented resonant low-pass filter
+6. **MIDI Support**: Added MIDI keyboard input with dual-mode frequency/detune controls
+7. **Octave Switches**: Implemented independent octave controls per oscillator
+8. **UI Polish**: Power button, master volume, and refined circular button styling
 
 ## Roadmap
 
 Future enhancements:
-- [ ] MIDI input support for playing with a keyboard
-- [ ] Octave switches for easier musical note selection
+- [x] MIDI input support for playing with a keyboard
+- [x] Octave switches for easier musical note selection
 - [ ] LFO (Low-Frequency Oscillator) for modulation
 - [ ] Additional filter types (high-pass, band-pass)
 - [ ] Effects (reverb, delay, distortion)
 - [ ] Preset management (save/load patches)
 - [ ] VST plugin export
+- [ ] Polyphonic voice support
 
 ## License
 
