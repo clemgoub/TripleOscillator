@@ -7,6 +7,7 @@ Features:
 - Low-pass filter with cutoff and resonance
 - Mixer with gain control per oscillator
 - Professional synth-style interface
+- Preset save/load functionality
 """
 
 import sys
@@ -15,9 +16,12 @@ import sounddevice as sd
 import mido
 import threading
 import time
+import json
+import os
 from scipy import signal as scipy_signal
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QLabel, QPushButton, QDial, QComboBox)
+                             QHBoxLayout, QLabel, QPushButton, QDial, QComboBox,
+                             QFileDialog, QMessageBox)
 from PyQt5.QtCore import Qt, QObject, pyqtSignal
 from PyQt5.QtGui import QFont
 
@@ -384,6 +388,49 @@ class SineWaveGenerator(QMainWindow):
         """)
         self.power_button.clicked.connect(self.toggle_power)
         midi_layout.addWidget(self.power_button)
+
+        midi_layout.addStretch(1)
+
+        # Preset management buttons
+        save_preset_button = QPushButton("Save Preset")
+        save_preset_button.setFont(QFont("Arial", 10))
+        save_preset_button.setFixedSize(100, 40)
+        save_preset_button.setStyleSheet("""
+            QPushButton {
+                background-color: #1e3a8a;
+                color: white;
+                border: 2px solid #3b82f6;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+            QPushButton:pressed {
+                background-color: #1e40af;
+            }
+        """)
+        save_preset_button.clicked.connect(self.save_preset)
+        midi_layout.addWidget(save_preset_button)
+
+        load_preset_button = QPushButton("Load Preset")
+        load_preset_button.setFont(QFont("Arial", 10))
+        load_preset_button.setFixedSize(100, 40)
+        load_preset_button.setStyleSheet("""
+            QPushButton {
+                background-color: #166534;
+                color: white;
+                border: 2px solid #22c55e;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #16a34a;
+            }
+            QPushButton:pressed {
+                background-color: #15803d;
+            }
+        """)
+        load_preset_button.clicked.connect(self.load_preset)
+        midi_layout.addWidget(load_preset_button)
 
         midi_layout.addStretch(1)
         main_layout.addLayout(midi_layout)
@@ -1151,6 +1198,211 @@ class SineWaveGenerator(QMainWindow):
             self.filter.cutoff = float(value)
         elif param == 'resonance':
             self.filter.resonance = value / 100.0
+
+    def save_preset(self):
+        """Save current settings to a preset file"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Preset",
+            os.path.expanduser("~/Documents"),
+            "Synth Presets (*.json);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        # Ensure .json extension
+        if not file_path.endswith('.json'):
+            file_path += '.json'
+
+        # Create preset data structure
+        preset = {
+            "version": "1.0",  # For future compatibility
+            "oscillators": {
+                "osc1": {
+                    "waveform": self.waveform1,
+                    "frequency": self.freq1,
+                    "detune": self.detune1,
+                    "octave": self.octave1,
+                    "pulse_width": self.pulse_width1,
+                    "gain": self.gain1
+                },
+                "osc2": {
+                    "waveform": self.waveform2,
+                    "frequency": self.freq2,
+                    "detune": self.detune2,
+                    "octave": self.octave2,
+                    "pulse_width": self.pulse_width2,
+                    "gain": self.gain2
+                },
+                "osc3": {
+                    "waveform": self.waveform3,
+                    "frequency": self.freq3,
+                    "detune": self.detune3,
+                    "octave": self.octave3,
+                    "pulse_width": self.pulse_width3,
+                    "gain": self.gain3
+                }
+            },
+            "envelope": {
+                "attack": self.env1.attack,
+                "decay": self.env1.decay,
+                "sustain": self.env1.sustain,
+                "release": self.env1.release
+            },
+            "filter": {
+                "cutoff": self.filter.cutoff,
+                "resonance": self.filter.resonance
+            },
+            "master": {
+                "volume": self.master_volume,
+                "power": self.power_on
+            }
+        }
+
+        try:
+            with open(file_path, 'w') as f:
+                json.dump(preset, f, indent=2)
+            QMessageBox.information(self, "Success", f"Preset saved to:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save preset:\n{str(e)}")
+
+    def load_preset(self):
+        """Load settings from a preset file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Preset",
+            os.path.expanduser("~/Documents"),
+            "Synth Presets (*.json);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'r') as f:
+                preset = json.load(f)
+
+            # Extract oscillator settings with defaults for forward compatibility
+            osc1 = preset.get("oscillators", {}).get("osc1", {})
+            osc2 = preset.get("oscillators", {}).get("osc2", {})
+            osc3 = preset.get("oscillators", {}).get("osc3", {})
+
+            # Oscillator 1
+            self.waveform1 = osc1.get("waveform", "Sine")
+            self.freq1 = osc1.get("frequency", 440.0)
+            self.detune1 = osc1.get("detune", 0.0)
+            self.octave1 = osc1.get("octave", 0)
+            self.pulse_width1 = osc1.get("pulse_width", 0.5)
+            self.gain1 = osc1.get("gain", 0.33)
+
+            # Oscillator 2
+            self.waveform2 = osc2.get("waveform", "Sine")
+            self.freq2 = osc2.get("frequency", 440.0)
+            self.detune2 = osc2.get("detune", 0.0)
+            self.octave2 = osc2.get("octave", 0)
+            self.pulse_width2 = osc2.get("pulse_width", 0.5)
+            self.gain2 = osc2.get("gain", 0.33)
+
+            # Oscillator 3
+            self.waveform3 = osc3.get("waveform", "Sine")
+            self.freq3 = osc3.get("frequency", 440.0)
+            self.detune3 = osc3.get("detune", 0.0)
+            self.octave3 = osc3.get("octave", 0)
+            self.pulse_width3 = osc3.get("pulse_width", 0.5)
+            self.gain3 = osc3.get("gain", 0.33)
+
+            # Envelope settings
+            env = preset.get("envelope", {})
+            self.env1.attack = env.get("attack", 0.01)
+            self.env2.attack = env.get("attack", 0.01)
+            self.env3.attack = env.get("attack", 0.01)
+            self.env1.decay = env.get("decay", 0.1)
+            self.env2.decay = env.get("decay", 0.1)
+            self.env3.decay = env.get("decay", 0.1)
+            self.env1.sustain = env.get("sustain", 0.7)
+            self.env2.sustain = env.get("sustain", 0.7)
+            self.env3.sustain = env.get("sustain", 0.7)
+            self.env1.release = env.get("release", 0.2)
+            self.env2.release = env.get("release", 0.2)
+            self.env3.release = env.get("release", 0.2)
+
+            # Filter settings
+            filt = preset.get("filter", {})
+            self.filter.cutoff = filt.get("cutoff", 5000.0)
+            self.filter.resonance = filt.get("resonance", 0.0)
+
+            # Master settings
+            master = preset.get("master", {})
+            self.master_volume = master.get("volume", 0.5)
+            self.power_on = master.get("power", True)
+
+            # Update UI to reflect loaded preset
+            self.update_ui_from_preset()
+
+            QMessageBox.information(self, "Success", f"Preset loaded from:\n{file_path}")
+
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self, "Error", f"Invalid preset file:\n{str(e)}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load preset:\n{str(e)}")
+
+    def update_ui_from_preset(self):
+        """Update all UI elements to reflect current preset values"""
+        # Update waveform selectors
+        self.waveform1_combo.setCurrentText(self.waveform1)
+        self.waveform2_combo.setCurrentText(self.waveform2)
+        self.waveform3_combo.setCurrentText(self.waveform3)
+
+        # Update frequency labels
+        self.freq1_label.setText(f"{self.freq1:.1f} Hz")
+        self.freq2_label.setText(f"{self.freq2:.1f} Hz")
+        self.freq3_label.setText(f"{self.freq3:.1f} Hz")
+
+        # Update octave labels
+        self.octave1_label.setText(f"{self.octave1:+d}" if self.octave1 != 0 else "0")
+        self.octave2_label.setText(f"{self.octave2:+d}" if self.octave2 != 0 else "0")
+        self.octave3_label.setText(f"{self.octave3:+d}" if self.octave3 != 0 else "0")
+
+        # Update pulse width knobs and labels
+        self.pw1_knob.setValue(int(self.pulse_width1 * 100))
+        self.pw2_knob.setValue(int(self.pulse_width2 * 100))
+        self.pw3_knob.setValue(int(self.pulse_width3 * 100))
+        self.pw1_label.setText(f"{int(self.pulse_width1 * 100)}%")
+        self.pw2_label.setText(f"{int(self.pulse_width2 * 100)}%")
+        self.pw3_label.setText(f"{int(self.pulse_width3 * 100)}%")
+
+        # Update power button
+        if self.power_on:
+            self.power_button.setText("ON")
+            self.power_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 5px 15px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+            """)
+        else:
+            self.power_button.setText("OFF")
+            self.power_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #f44336;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 5px 15px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #da190b;
+                }
+            """)
 
     def generate_waveform(self, waveform_type, phase, phase_increment, frames, pulse_width=0.5):
         """Generate a waveform based on type

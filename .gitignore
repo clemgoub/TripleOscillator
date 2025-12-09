@@ -30,6 +30,9 @@ build/
 *.mp3
 *.aiff
 
+# User presets
+Presets/
+
 # OS
 .DS_Store
 Thumbs.db

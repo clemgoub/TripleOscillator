@@ -47,6 +47,13 @@ A [vibe-coded](https://en.wikipedia.org/wiki/Vibe_coding#:~:text=In%20September%
 - **Resonance**: 0-100% - Emphasize the cutoff frequency for character
 - **Biquad Filter Design**: Professional-quality filtering
 
+### Preset Management
+- **Save Presets**: Save all synth settings to JSON files
+- **Load Presets**: Recall saved settings instantly
+- **Forward Compatible**: Old presets work with new features via smart defaults
+- **Human Readable**: JSON format allows manual editing
+- **Complete State**: Saves oscillators, envelope, filter, and master settings
+
 ### Audio Engine
 - **44.1 kHz Sample Rate**: CD-quality audio
 - **Phase-Continuous Generation**: Click-free frequency changes
@@ -134,6 +141,9 @@ classDiagram
         +apply_octave()
         +update_pulse_width()
         +handle_midi_note_on()
+        +save_preset()
+        +load_preset()
+        +update_ui_from_preset()
     }
 
     class MIDIHandler {
@@ -198,6 +208,9 @@ graph LR
     H -.->|ADSR params| E
     H -.->|cutoff/resonance| F
     I[ON/OFF Buttons] -.->|trigger/release| E
+
+    J[Preset System<br/>JSON Files] -.->|load| H
+    H -.->|save| J
 ```
 
 ### Audio Processing Flow
@@ -291,16 +304,19 @@ This project started as a simple sine wave generator and evolved into a full sub
 6. **MIDI Support**: Added MIDI keyboard input with dual-mode frequency/detune controls
 7. **Octave Switches**: Implemented independent octave controls per oscillator
 8. **UI Polish**: Power button, master volume, and refined circular button styling
+9. **Pulse Width Modulation**: Added PWM controls for square waves (1-99% duty cycle)
+10. **Preset Management**: Implemented forward-compatible preset save/load system
 
 ## Roadmap
 
 Future enhancements:
 - [x] MIDI input support for playing with a keyboard
 - [x] Octave switches for easier musical note selection
+- [x] Pulse width modulation for square waves
+- [x] Preset management (save/load patches)
 - [ ] LFO (Low-Frequency Oscillator) for modulation
 - [ ] Additional filter types (high-pass, band-pass)
 - [ ] Effects (reverb, delay, distortion)
-- [ ] Preset management (save/load patches)
 - [ ] VST plugin export
 - [ ] Polyphonic voice support
 
