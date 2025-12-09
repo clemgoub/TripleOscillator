@@ -21,7 +21,7 @@ import os
 from scipy import signal as scipy_signal
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton, QDial, QComboBox,
-                             QFileDialog, QMessageBox)
+                             QFileDialog, QMessageBox, QSlider, QGridLayout)
 from PyQt5.QtCore import Qt, QObject, pyqtSignal
 from PyQt5.QtGui import QFont
 
@@ -272,6 +272,85 @@ class LowPassFilter:
         return output
 
 
+class LFOGenerator:
+    """Low-Frequency Oscillator for modulation"""
+    def __init__(self, sample_rate):
+        self.sample_rate = sample_rate
+        self.waveform = "Sine"  # Sine, Triangle, Square, Sawtooth, Random
+        self.rate_mode = "Free"  # Free (Hz) or Sync (MIDI divisions)
+        self.rate_hz = 2.0  # Frequency in Hz (0.1 - 20 Hz)
+        self.sync_division = "1/4"  # MIDI sync: 1/16, 1/8, 1/4, 1/2, 1/1, 2/1, 4/1
+        self.bpm = 120.0  # Tempo for MIDI sync
+        self.phase = 0.0  # Current phase (0 to 2*pi)
+
+        # Random waveform state
+        self.last_random_value = 0.0
+        self.random_samples_until_change = 0
+
+    def get_effective_rate(self):
+        """Calculate effective rate in Hz based on mode"""
+        if self.rate_mode == "Free":
+            return self.rate_hz
+        else:
+            # MIDI sync mode - convert division to Hz based on BPM
+            divisions = {
+                "1/16": 4.0,
+                "1/8": 2.0,
+                "1/4": 1.0,
+                "1/2": 0.5,
+                "1/1": 0.25,
+                "2/1": 0.125,
+                "4/1": 0.0625
+            }
+            beats_per_cycle = divisions.get(self.sync_division, 1.0)
+            return (self.bpm / 60.0) / beats_per_cycle
+
+    def process(self, num_samples):
+        """Generate LFO waveform for num_samples (returns values from -1 to 1)"""
+        output = np.zeros(num_samples)
+        rate = self.get_effective_rate()
+        phase_increment = 2.0 * np.pi * rate / self.sample_rate
+
+        if self.waveform == "Sine":
+            phases = self.phase + np.arange(num_samples) * phase_increment
+            output = np.sin(phases)
+
+        elif self.waveform == "Triangle":
+            phases = self.phase + np.arange(num_samples) * phase_increment
+            normalized_phase = (phases % (2 * np.pi)) / (2 * np.pi)
+            # Triangle: rises from -1 to 1, then falls back to -1
+            output = np.where(normalized_phase < 0.5,
+                            -1.0 + 4.0 * normalized_phase,
+                            3.0 - 4.0 * normalized_phase)
+
+        elif self.waveform == "Square":
+            phases = self.phase + np.arange(num_samples) * phase_increment
+            output = np.where(np.sin(phases) >= 0, 1.0, -1.0)
+
+        elif self.waveform == "Sawtooth":
+            phases = self.phase + np.arange(num_samples) * phase_increment
+            normalized_phase = (phases % (2 * np.pi)) / (2 * np.pi)
+            # Sawtooth: rises from -1 to 1
+            output = -1.0 + 2.0 * normalized_phase
+
+        elif self.waveform == "Random":
+            # Sample & hold: random value held for duration based on rate
+            samples_per_step = int(self.sample_rate / (rate * 2))  # 2 steps per cycle
+            for i in range(num_samples):
+                if self.random_samples_until_change <= 0:
+                    self.last_random_value = np.random.uniform(-1.0, 1.0)
+                    self.random_samples_until_change = samples_per_step
+                output[i] = self.last_random_value
+                self.random_samples_until_change -= 1
+
+        # Update phase for next call
+        self.phase += num_samples * phase_increment
+        # Keep phase in range to prevent overflow
+        self.phase = self.phase % (2 * np.pi)
+
+        return output
+
+
 class SineWaveGenerator(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -322,6 +401,21 @@ class SineWaveGenerator(QMainWindow):
         # Filter
         self.filter = LowPassFilter(self.sample_rate)
 
+        # LFO
+        self.lfo = LFOGenerator(self.sample_rate)
+
+        # Modulation matrix (depth 0-1 for each destination)
+        self.lfo_to_osc1_pitch = 0.0
+        self.lfo_to_osc2_pitch = 0.0
+        self.lfo_to_osc3_pitch = 0.0
+        self.lfo_to_osc1_pw = 0.0
+        self.lfo_to_osc2_pw = 0.0
+        self.lfo_to_osc3_pw = 0.0
+        self.lfo_to_filter_cutoff = 0.0
+        self.lfo_to_osc1_volume = 0.0
+        self.lfo_to_osc2_volume = 0.0
+        self.lfo_to_osc3_volume = 0.0
+
         # MIDI
         self.midi_handler = MIDIHandler()
         self.midi_handler.note_on.connect(self.handle_midi_note_on)
@@ -340,7 +434,7 @@ class SineWaveGenerator(QMainWindow):
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle("Triple Oscillator Synth")
-        self.setFixedSize(900, 650)
+        self.setFixedSize(900, 850)
 
         # Create central widget and main layout
         central_widget = QWidget()
@@ -470,6 +564,10 @@ class SineWaveGenerator(QMainWindow):
         bottom_layout.addWidget(filter_widget, 1)
 
         main_layout.addLayout(bottom_layout)
+
+        # LFO Section (full width below filter)
+        lfo_widget = self.create_lfo_section()
+        main_layout.addWidget(lfo_widget)
 
         # Initialize ADSR values (trigger callbacks manually since setValue doesn't trigger them)
         self.update_adsr('attack', 10)      # 10ms
@@ -979,6 +1077,147 @@ class SineWaveGenerator(QMainWindow):
 
         return section
 
+    def create_lfo_section(self):
+        """Create LFO section with waveform, rate, and modulation matrix"""
+        section = QWidget()
+        main_layout = QVBoxLayout(section)
+        main_layout.setSpacing(5)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+
+        # Title
+        title_label = QLabel("LFO & Modulation Matrix")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setFont(QFont("Arial", 14, QFont.Bold))
+        main_layout.addWidget(title_label)
+
+        # Top row: LFO controls
+        lfo_controls_layout = QHBoxLayout()
+        lfo_controls_layout.setSpacing(15)
+
+        # Waveform selector
+        waveform_container = QWidget()
+        waveform_layout = QVBoxLayout(waveform_container)
+        waveform_label = QLabel("Waveform")
+        waveform_label.setAlignment(Qt.AlignCenter)
+        waveform_layout.addWidget(waveform_label)
+        self.lfo_waveform_combo = QComboBox()
+        self.lfo_waveform_combo.addItems(["Sine", "Triangle", "Square", "Sawtooth", "Random"])
+        self.lfo_waveform_combo.setFixedWidth(120)
+        self.lfo_waveform_combo.currentTextChanged.connect(lambda v: setattr(self.lfo, 'waveform', v))
+        waveform_layout.addWidget(self.lfo_waveform_combo)
+        lfo_controls_layout.addWidget(waveform_container)
+
+        # Rate Mode selector
+        mode_container = QWidget()
+        mode_layout = QVBoxLayout(mode_container)
+        mode_label = QLabel("Rate Mode")
+        mode_label.setAlignment(Qt.AlignCenter)
+        mode_layout.addWidget(mode_label)
+        self.lfo_mode_combo = QComboBox()
+        self.lfo_mode_combo.addItems(["Free", "Sync"])
+        self.lfo_mode_combo.setFixedWidth(100)
+        self.lfo_mode_combo.currentTextChanged.connect(self.update_lfo_mode)
+        mode_layout.addWidget(self.lfo_mode_combo)
+        lfo_controls_layout.addWidget(mode_container)
+
+        # Rate knob (Free mode: 0.1-20 Hz)
+        self.lfo_rate_container = self.create_knob_with_label("Rate", 1, 200, 20,
+                                                                lambda v: self.update_lfo_rate(v / 10.0), size=70)
+        lfo_controls_layout.addWidget(self.lfo_rate_container)
+
+        # Sync division selector (only visible in Sync mode)
+        self.sync_div_container = QWidget()
+        sync_div_layout = QVBoxLayout(self.sync_div_container)
+        sync_div_label = QLabel("Division")
+        sync_div_label.setAlignment(Qt.AlignCenter)
+        sync_div_layout.addWidget(sync_div_label)
+        self.lfo_sync_combo = QComboBox()
+        self.lfo_sync_combo.addItems(["1/16", "1/8", "1/4", "1/2", "1/1", "2/1", "4/1"])
+        self.lfo_sync_combo.setCurrentText("1/4")
+        self.lfo_sync_combo.setFixedWidth(80)
+        self.lfo_sync_combo.currentTextChanged.connect(lambda v: setattr(self.lfo, 'sync_division', v))
+        sync_div_layout.addWidget(self.lfo_sync_combo)
+        self.sync_div_container.setVisible(False)  # Hidden by default
+        lfo_controls_layout.addWidget(self.sync_div_container)
+
+        # BPM knob (only visible in Sync mode)
+        self.bpm_container = self.create_knob_with_label("BPM", 40, 240, 120,
+                                                          lambda v: setattr(self.lfo, 'bpm', float(v)), size=70)
+        self.bpm_container.setVisible(False)  # Hidden by default
+        lfo_controls_layout.addWidget(self.bpm_container)
+
+        lfo_controls_layout.addStretch()
+        main_layout.addLayout(lfo_controls_layout)
+
+        # Bottom: Modulation Matrix
+        matrix_label = QLabel("Modulation Depth (0-100%)")
+        matrix_label.setAlignment(Qt.AlignCenter)
+        matrix_label.setFont(QFont("Arial", 11))
+        main_layout.addWidget(matrix_label)
+
+        # Create grid for modulation matrix
+        matrix_layout = QGridLayout()
+        matrix_layout.setSpacing(10)
+
+        # Headers
+        matrix_layout.addWidget(QLabel(""), 0, 0)
+        matrix_layout.addWidget(QLabel("Osc1 Pitch"), 0, 1, Qt.AlignCenter)
+        matrix_layout.addWidget(QLabel("Osc2 Pitch"), 0, 2, Qt.AlignCenter)
+        matrix_layout.addWidget(QLabel("Osc3 Pitch"), 0, 3, Qt.AlignCenter)
+        matrix_layout.addWidget(QLabel("Osc1 PW"), 0, 4, Qt.AlignCenter)
+        matrix_layout.addWidget(QLabel("Osc2 PW"), 0, 5, Qt.AlignCenter)
+        matrix_layout.addWidget(QLabel("Osc3 PW"), 0, 6, Qt.AlignCenter)
+        matrix_layout.addWidget(QLabel("Filter"), 0, 7, Qt.AlignCenter)
+        matrix_layout.addWidget(QLabel("Osc1 Vol"), 0, 8, Qt.AlignCenter)
+        matrix_layout.addWidget(QLabel("Osc2 Vol"), 0, 9, Qt.AlignCenter)
+        matrix_layout.addWidget(QLabel("Osc3 Vol"), 0, 10, Qt.AlignCenter)
+
+        # LFO row label
+        matrix_layout.addWidget(QLabel("LFO"), 1, 0)
+
+        # Create sliders for each modulation destination
+        mod_destinations = [
+            ('lfo_to_osc1_pitch', 1, 1),
+            ('lfo_to_osc2_pitch', 1, 2),
+            ('lfo_to_osc3_pitch', 1, 3),
+            ('lfo_to_osc1_pw', 1, 4),
+            ('lfo_to_osc2_pw', 1, 5),
+            ('lfo_to_osc3_pw', 1, 6),
+            ('lfo_to_filter_cutoff', 1, 7),
+            ('lfo_to_osc1_volume', 1, 8),
+            ('lfo_to_osc2_volume', 1, 9),
+            ('lfo_to_osc3_volume', 1, 10)
+        ]
+
+        for attr_name, row, col in mod_destinations:
+            slider = QSlider(Qt.Vertical)
+            slider.setMinimum(0)
+            slider.setMaximum(100)
+            slider.setValue(0)
+            slider.setFixedHeight(60)
+            slider.valueChanged.connect(lambda v, attr=attr_name: setattr(self, attr, v / 100.0))
+            matrix_layout.addWidget(slider, row, col, Qt.AlignCenter)
+
+        main_layout.addLayout(matrix_layout)
+
+        return section
+
+    def update_lfo_mode(self, mode):
+        """Update LFO rate mode and show/hide relevant controls"""
+        self.lfo.rate_mode = mode
+        if mode == "Free":
+            self.lfo_rate_container.setVisible(True)
+            self.sync_div_container.setVisible(False)
+            self.bpm_container.setVisible(False)
+        else:  # Sync
+            self.lfo_rate_container.setVisible(False)
+            self.sync_div_container.setVisible(True)
+            self.bpm_container.setVisible(True)
+
+    def update_lfo_rate(self, rate_hz):
+        """Update LFO rate in Hz"""
+        self.lfo.rate_hz = rate_hz
+
     def create_knob_with_label(self, name, min_val, max_val, initial_val, callback, size=70):
         """Helper to create a knob with label and value display"""
         container = QWidget()
@@ -1047,6 +1286,11 @@ class SineWaveGenerator(QMainWindow):
             return f"{freq}Hz"
         elif knob_name == "Resonance":
             return f"{value}%"
+        elif knob_name == "Rate":
+            # LFO rate: 1-200 maps to 0.1-20.0 Hz
+            return f"{value / 10.0:.1f}Hz"
+        elif knob_name == "BPM":
+            return f"{value}"
         else:
             return str(value)
 
@@ -1437,33 +1681,82 @@ class SineWaveGenerator(QMainWindow):
             outdata[:, 1] = 0
             return
 
+        # Generate LFO signal (-1 to 1)
+        lfo_signal = self.lfo.process(frames)
+
         mixed = np.zeros(frames)
 
         # Generate oscillator 1 (only if on)
         if self.osc1_on:
-            phase_increment1 = 2 * np.pi * self.freq1 / self.sample_rate
-            wave1 = self.generate_waveform(self.waveform1, self.phase1, phase_increment1, frames, self.pulse_width1)
+            # Apply pitch modulation (vibrato) - LFO modulates frequency ±5% max
+            freq_mod = 1.0 + (lfo_signal * 0.05 * self.lfo_to_osc1_pitch)
+            modulated_freq1 = self.freq1 * freq_mod
+            phase_increment1 = 2 * np.pi * modulated_freq1 / self.sample_rate
+
+            # Apply pulse width modulation
+            pw_mod = lfo_signal * 0.3 * self.lfo_to_osc1_pw  # ±30% max modulation
+            modulated_pw1 = np.clip(self.pulse_width1 + pw_mod, 0.01, 0.99)
+
+            wave1 = self.generate_waveform(self.waveform1, self.phase1, phase_increment1, frames, modulated_pw1)
             env1 = self.env1.process(frames)
-            mixed += self.gain1 * wave1 * env1
+
+            # Apply volume modulation (tremolo)
+            vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc1_volume)
+            modulated_gain1 = self.gain1 * np.clip(vol_mod, 0.0, 1.0)
+
+            mixed += modulated_gain1 * wave1 * env1
             self.phase1 = (self.phase1 + frames * phase_increment1) % (2 * np.pi)
 
         # Generate oscillator 2 (only if on)
         if self.osc2_on:
-            phase_increment2 = 2 * np.pi * self.freq2 / self.sample_rate
-            wave2 = self.generate_waveform(self.waveform2, self.phase2, phase_increment2, frames, self.pulse_width2)
+            # Apply pitch modulation
+            freq_mod = 1.0 + (lfo_signal * 0.05 * self.lfo_to_osc2_pitch)
+            modulated_freq2 = self.freq2 * freq_mod
+            phase_increment2 = 2 * np.pi * modulated_freq2 / self.sample_rate
+
+            # Apply pulse width modulation
+            pw_mod = lfo_signal * 0.3 * self.lfo_to_osc2_pw
+            modulated_pw2 = np.clip(self.pulse_width2 + pw_mod, 0.01, 0.99)
+
+            wave2 = self.generate_waveform(self.waveform2, self.phase2, phase_increment2, frames, modulated_pw2)
             env2 = self.env2.process(frames)
-            mixed += self.gain2 * wave2 * env2
+
+            # Apply volume modulation
+            vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc2_volume)
+            modulated_gain2 = self.gain2 * np.clip(vol_mod, 0.0, 1.0)
+
+            mixed += modulated_gain2 * wave2 * env2
             self.phase2 = (self.phase2 + frames * phase_increment2) % (2 * np.pi)
 
         # Generate oscillator 3 (only if on)
         if self.osc3_on:
-            phase_increment3 = 2 * np.pi * self.freq3 / self.sample_rate
-            wave3 = self.generate_waveform(self.waveform3, self.phase3, phase_increment3, frames, self.pulse_width3)
+            # Apply pitch modulation
+            freq_mod = 1.0 + (lfo_signal * 0.05 * self.lfo_to_osc3_pitch)
+            modulated_freq3 = self.freq3 * freq_mod
+            phase_increment3 = 2 * np.pi * modulated_freq3 / self.sample_rate
+
+            # Apply pulse width modulation
+            pw_mod = lfo_signal * 0.3 * self.lfo_to_osc3_pw
+            modulated_pw3 = np.clip(self.pulse_width3 + pw_mod, 0.01, 0.99)
+
+            wave3 = self.generate_waveform(self.waveform3, self.phase3, phase_increment3, frames, modulated_pw3)
             env3 = self.env3.process(frames)
-            mixed += self.gain3 * wave3 * env3
+
+            # Apply volume modulation
+            vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc3_volume)
+            modulated_gain3 = self.gain3 * np.clip(vol_mod, 0.0, 1.0)
+
+            mixed += modulated_gain3 * wave3 * env3
             self.phase3 = (self.phase3 + frames * phase_increment3) % (2 * np.pi)
 
-        # Apply filter
+        # Apply filter with LFO modulation to cutoff
+        # LFO modulates cutoff ±2 octaves (4x range)
+        # Use mean LFO value for filter (filters can't do per-sample modulation efficiently)
+        if self.lfo_to_filter_cutoff > 0:
+            lfo_mean = np.mean(lfo_signal)
+            cutoff_mod = 2.0 ** (lfo_mean * 2.0 * self.lfo_to_filter_cutoff)  # ±2 octaves
+            self.filter.cutoff = np.clip(self.filter.cutoff * cutoff_mod, 20.0, 20000.0)
+
         filtered = self.filter.process(mixed)
 
         # Apply master volume
