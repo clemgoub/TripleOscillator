@@ -284,6 +284,7 @@ class SineWaveGenerator(QMainWindow):
         self.waveform1 = "Sine"
         self.detune1 = 0.0  # Detune in cents (-100 to +100)
         self.octave1 = 0  # Octave offset (-3 to +3)
+        self.pulse_width1 = 0.5  # Pulse width for square wave (0.0 to 1.0, default 50%)
 
         # Oscillator 2 parameters (phase offset to reduce constructive interference)
         self.freq2 = 440.0
@@ -292,6 +293,7 @@ class SineWaveGenerator(QMainWindow):
         self.waveform2 = "Sine"
         self.detune2 = 0.0  # Detune in cents (-100 to +100)
         self.octave2 = 0  # Octave offset (-3 to +3)
+        self.pulse_width2 = 0.5  # Pulse width for square wave (0.0 to 1.0, default 50%)
 
         # Oscillator 3 parameters (phase offset to reduce constructive interference)
         self.freq3 = 440.0
@@ -300,6 +302,7 @@ class SineWaveGenerator(QMainWindow):
         self.waveform3 = "Sine"
         self.detune3 = 0.0  # Detune in cents (-100 to +100)
         self.octave3 = 0  # Octave offset (-3 to +3)
+        self.pulse_width3 = 0.5  # Pulse width for square wave (0.0 to 1.0, default 50%)
 
         # Mixer parameters (0.0 to 1.0)
         self.gain1 = 0.33
@@ -656,6 +659,61 @@ class SineWaveGenerator(QMainWindow):
         octave_layout.addWidget(octave_up_btn)
         octave_layout.addStretch(1)
         layout.addLayout(octave_layout)
+
+        layout.addStretch(1)
+
+        # Pulse Width knob (Small: 50x50, only affects Square wave)
+        pw_label = QLabel("Pulse Width")
+        pw_label.setAlignment(Qt.AlignCenter)
+        pw_label.setFont(QFont("Arial", 9, QFont.Bold))
+        layout.addWidget(pw_label)
+
+        pw_knob = QDial()
+        pw_knob.setMinimum(1)  # 1% minimum to avoid silence
+        pw_knob.setMaximum(99)  # 99% maximum
+        pw_knob.setValue(50)  # 50% default (square wave)
+        pw_knob.setNotchesVisible(True)
+        pw_knob.setWrapping(False)
+        pw_knob.setFixedSize(50, 50)
+        pw_knob.setAttribute(Qt.WA_MacShowFocusRect, False)
+        pw_knob.setStyleSheet("""
+            QDial {
+                background: none;
+                border: none;
+            }
+        """)
+
+        # Connect to appropriate oscillator
+        if osc_num == 1:
+            self.pw1_knob = pw_knob
+            pw_knob.valueChanged.connect(lambda v: self.update_pulse_width(1, v))
+        elif osc_num == 2:
+            self.pw2_knob = pw_knob
+            pw_knob.valueChanged.connect(lambda v: self.update_pulse_width(2, v))
+        else:
+            self.pw3_knob = pw_knob
+            pw_knob.valueChanged.connect(lambda v: self.update_pulse_width(3, v))
+
+        # Center the knob
+        pw_knob_layout = QHBoxLayout()
+        pw_knob_layout.addStretch(1)
+        pw_knob_layout.addWidget(pw_knob)
+        pw_knob_layout.addStretch(1)
+        layout.addLayout(pw_knob_layout)
+
+        # Pulse width value display
+        pw_value_label = QLabel("50%")
+        pw_value_label.setAlignment(Qt.AlignCenter)
+        pw_value_label.setFont(QFont("Arial", 9))
+
+        if osc_num == 1:
+            self.pw1_label = pw_value_label
+        elif osc_num == 2:
+            self.pw2_label = pw_value_label
+        else:
+            self.pw3_label = pw_value_label
+
+        layout.addWidget(pw_value_label)
 
         layout.addStretch(1)
 
@@ -1038,6 +1096,20 @@ class SineWaveGenerator(QMainWindow):
         else:
             self.waveform3 = waveform
 
+    def update_pulse_width(self, osc_num, value):
+        """Update pulse width from knob (1-99%)"""
+        pulse_width = value / 100.0  # Convert to 0.01-0.99 range
+
+        if osc_num == 1:
+            self.pulse_width1 = pulse_width
+            self.pw1_label.setText(f"{value}%")
+        elif osc_num == 2:
+            self.pulse_width2 = pulse_width
+            self.pw2_label.setText(f"{value}%")
+        else:
+            self.pulse_width3 = pulse_width
+            self.pw3_label.setText(f"{value}%")
+
     def update_gain(self, osc_num, value):
         """Update gain from knob (0-100%)"""
         gain = value / 100.0
@@ -1080,8 +1152,16 @@ class SineWaveGenerator(QMainWindow):
         elif param == 'resonance':
             self.filter.resonance = value / 100.0
 
-    def generate_waveform(self, waveform_type, phase, phase_increment, frames):
-        """Generate a waveform based on type"""
+    def generate_waveform(self, waveform_type, phase, phase_increment, frames, pulse_width=0.5):
+        """Generate a waveform based on type
+
+        Args:
+            waveform_type: Type of waveform ("Sine", "Sawtooth", "Square")
+            phase: Starting phase
+            phase_increment: Phase increment per sample
+            frames: Number of frames to generate
+            pulse_width: Pulse width for square wave (0.0 to 1.0, default 0.5 for 50% duty cycle)
+        """
         phases = phase + np.arange(frames) * phase_increment
 
         if waveform_type == "Sine":
@@ -1089,7 +1169,9 @@ class SineWaveGenerator(QMainWindow):
         elif waveform_type == "Sawtooth":
             return 2 * ((phases % (2 * np.pi)) / (2 * np.pi)) - 1
         elif waveform_type == "Square":
-            return np.where(np.sin(phases) >= 0, 1.0, -1.0)
+            # Pulse width modulation: compare normalized phase to pulse width
+            normalized_phase = (phases % (2 * np.pi)) / (2 * np.pi)
+            return np.where(normalized_phase < pulse_width, 1.0, -1.0)
         else:
             return np.sin(phases)
 
@@ -1108,7 +1190,7 @@ class SineWaveGenerator(QMainWindow):
         # Generate oscillator 1 (only if on)
         if self.osc1_on:
             phase_increment1 = 2 * np.pi * self.freq1 / self.sample_rate
-            wave1 = self.generate_waveform(self.waveform1, self.phase1, phase_increment1, frames)
+            wave1 = self.generate_waveform(self.waveform1, self.phase1, phase_increment1, frames, self.pulse_width1)
             env1 = self.env1.process(frames)
             mixed += self.gain1 * wave1 * env1
             self.phase1 = (self.phase1 + frames * phase_increment1) % (2 * np.pi)
@@ -1116,7 +1198,7 @@ class SineWaveGenerator(QMainWindow):
         # Generate oscillator 2 (only if on)
         if self.osc2_on:
             phase_increment2 = 2 * np.pi * self.freq2 / self.sample_rate
-            wave2 = self.generate_waveform(self.waveform2, self.phase2, phase_increment2, frames)
+            wave2 = self.generate_waveform(self.waveform2, self.phase2, phase_increment2, frames, self.pulse_width2)
             env2 = self.env2.process(frames)
             mixed += self.gain2 * wave2 * env2
             self.phase2 = (self.phase2 + frames * phase_increment2) % (2 * np.pi)
@@ -1124,7 +1206,7 @@ class SineWaveGenerator(QMainWindow):
         # Generate oscillator 3 (only if on)
         if self.osc3_on:
             phase_increment3 = 2 * np.pi * self.freq3 / self.sample_rate
-            wave3 = self.generate_waveform(self.waveform3, self.phase3, phase_increment3, frames)
+            wave3 = self.generate_waveform(self.waveform3, self.phase3, phase_increment3, frames, self.pulse_width3)
             env3 = self.env3.process(frames)
             mixed += self.gain3 * wave3 * env3
             self.phase3 = (self.phase3 + frames * phase_increment3) % (2 * np.pi)

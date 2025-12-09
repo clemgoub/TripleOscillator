@@ -11,7 +11,11 @@ A [vibe-coded](https://en.wikipedia.org/wiki/Vibe_coding#:~:text=In%20September%
 - **3 Waveforms per Oscillator**:
   - Sine: Pure, smooth tones
   - Sawtooth: Bright, buzzy sounds
-  - Square: Hollow, clarinet-like tones
+  - Square: Hollow, clarinet-like tones with pulse width modulation
+- **Pulse Width Modulation (PWM)**: Adjustable duty cycle for square waves (1-99%)
+  - Creates timbres from thin/nasal to thick/hollow
+  - Independent PWM control per oscillator
+  - Real-time modulation for classic analog synthesizer sounds
 - **Frequency Range**: 20 Hz to 5000 Hz (logarithmic scale)
 - **Dual-Mode Frequency Controls**:
   - Drone mode (no MIDI): Absolute frequency control (20Hz-5kHz)
@@ -115,6 +119,7 @@ classDiagram
         +freq1, freq2, freq3: float
         +detune1, detune2, detune3: float
         +octave1, octave2, octave3: int
+        +pulse_width1, pulse_width2, pulse_width3: float
         +waveform1, waveform2, waveform3: str
         +gain1, gain2, gain3: float
         +osc1_on, osc2_on, osc3_on: bool
@@ -127,6 +132,7 @@ classDiagram
         +generate_waveform()
         +apply_detune()
         +apply_octave()
+        +update_pulse_width()
         +handle_midi_note_on()
     }
 
