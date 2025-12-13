@@ -389,6 +389,12 @@ class Voice:
         self.unison_detune = unison_detune
         self.age = 0
 
+        # Reset phases to 0 for clean unison (no phasing)
+        # All voices in unison should start perfectly in phase
+        self.phase1 = 0
+        self.phase2 = 0
+        self.phase3 = 0
+
         # Trigger envelopes
         self.env1.trigger()
         self.env2.trigger()
