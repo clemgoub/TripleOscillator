@@ -79,7 +79,7 @@ class EnvelopeGenerator:
     """ADSR Envelope Generator"""
     def __init__(self, sample_rate):
         self.sample_rate = sample_rate
-        self.attack = 0.01   # seconds
+        self.attack = 0.0    # seconds (default 0 for instant attack)
         self.decay = 0.1     # seconds
         self.sustain = 0.7   # level (0-1)
         self.release = 0.3   # seconds
@@ -395,8 +395,9 @@ class Voice:
         self.env3.trigger()
 
     def release(self):
-        """Release this voice"""
-        self.note = None
+        """Release this voice (start release phase, but keep note assigned until idle)"""
+        # DON'T set note = None here - we need it for the audio callback during release
+        # It will be set to None when all envelopes reach idle phase
         self.env1.release_note()
         self.env2.release_note()
         self.env3.release_note()
@@ -531,68 +532,83 @@ class SineWaveGenerator(QMainWindow):
 
         midi_layout.addStretch(1)
 
-        # VOICE CONTROLS (Polyphony/Unison)
-        voice_label = QLabel("VOICE:")
-        voice_label.setFont(QFont("Arial", 10))
+        # VOICE MODE CONTROLS (Simple 3-button selection)
+        voice_label = QLabel("MODE:")
+        voice_label.setFont(QFont("Arial", 10, QFont.Bold))
         midi_layout.addWidget(voice_label)
 
-        # Polyphony control
-        poly_label = QLabel("Poly:")
-        poly_label.setFont(QFont("Arial", 9))
-        midi_layout.addWidget(poly_label)
+        # Mono button
+        self.mono_button = QPushButton("MONO")
+        self.mono_button.setFont(QFont("Arial", 9))
+        self.mono_button.setFixedSize(60, 35)
+        self.mono_button.setCheckable(True)
+        self.mono_button.setChecked(True)
+        self.mono_button.clicked.connect(lambda: self.set_voice_mode('mono'))
+        self.mono_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4a7c29;
+                color: white;
+                border: 2px solid #90ee90;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #5a8c39;
+            }
+            QPushButton:checked {
+                background-color: #90ee90;
+                color: black;
+                border: 2px solid #4a7c29;
+            }
+        """)
+        midi_layout.addWidget(self.mono_button)
 
-        self.polyphony_dial = QDial()
-        self.polyphony_dial.setMinimum(1)
-        self.polyphony_dial.setMaximum(8)
-        self.polyphony_dial.setValue(1)
-        self.polyphony_dial.setFixedSize(40, 40)
-        self.polyphony_dial.valueChanged.connect(self.on_polyphony_changed)
-        midi_layout.addWidget(self.polyphony_dial)
+        # Poly button
+        self.poly_button = QPushButton("POLY")
+        self.poly_button.setFont(QFont("Arial", 9))
+        self.poly_button.setFixedSize(60, 35)
+        self.poly_button.setCheckable(True)
+        self.poly_button.clicked.connect(lambda: self.set_voice_mode('poly'))
+        self.poly_button.setStyleSheet("""
+            QPushButton {
+                background-color: #555555;
+                color: white;
+                border: 2px solid #888888;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #666666;
+            }
+            QPushButton:checked {
+                background-color: #3b82f6;
+                color: white;
+                border: 2px solid #1e3a8a;
+            }
+        """)
+        midi_layout.addWidget(self.poly_button)
 
-        self.polyphony_value_label = QLabel("1")
-        self.polyphony_value_label.setFont(QFont("Arial", 9))
-        self.polyphony_value_label.setFixedWidth(20)
-        self.polyphony_value_label.setAlignment(Qt.AlignCenter)
-        midi_layout.addWidget(self.polyphony_value_label)
-
-        # Unison control
-        unison_label = QLabel("Uni:")
-        unison_label.setFont(QFont("Arial", 9))
-        midi_layout.addWidget(unison_label)
-
-        self.unison_dial = QDial()
-        self.unison_dial.setMinimum(1)
-        self.unison_dial.setMaximum(8)
-        self.unison_dial.setValue(1)
-        self.unison_dial.setFixedSize(40, 40)
-        self.unison_dial.valueChanged.connect(self.on_unison_changed)
-        midi_layout.addWidget(self.unison_dial)
-
-        self.unison_value_label = QLabel("1")
-        self.unison_value_label.setFont(QFont("Arial", 9))
-        self.unison_value_label.setFixedWidth(20)
-        self.unison_value_label.setAlignment(Qt.AlignCenter)
-        midi_layout.addWidget(self.unison_value_label)
-
-        # Unison detune control
-        detune_label = QLabel("Det:")
-        detune_label.setFont(QFont("Arial", 9))
-        midi_layout.addWidget(detune_label)
-
-        self.unison_detune_dial = QDial()
-        self.unison_detune_dial.setMinimum(0)
-        self.unison_detune_dial.setMaximum(50)
-        self.unison_detune_dial.setValue(10)
-        self.unison_detune_dial.setFixedSize(40, 40)
-        self.unison_detune_dial.setEnabled(False)  # Disabled initially
-        self.unison_detune_dial.valueChanged.connect(self.on_unison_detune_changed)
-        midi_layout.addWidget(self.unison_detune_dial)
-
-        self.unison_detune_value_label = QLabel("10c")
-        self.unison_detune_value_label.setFont(QFont("Arial", 9))
-        self.unison_detune_value_label.setFixedWidth(30)
-        self.unison_detune_value_label.setAlignment(Qt.AlignCenter)
-        midi_layout.addWidget(self.unison_detune_value_label)
+        # Unison button
+        self.unison_button = QPushButton("UNI")
+        self.unison_button.setFont(QFont("Arial", 9))
+        self.unison_button.setFixedSize(60, 35)
+        self.unison_button.setCheckable(True)
+        self.unison_button.clicked.connect(lambda: self.set_voice_mode('unison'))
+        self.unison_button.setStyleSheet("""
+            QPushButton {
+                background-color: #555555;
+                color: white;
+                border: 2px solid #888888;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #666666;
+            }
+            QPushButton:checked {
+                background-color: #dc2626;
+                color: white;
+                border: 2px solid #7f1d1d;
+            }
+        """)
+        midi_layout.addWidget(self.unison_button)
 
         midi_layout.addSpacing(20)
 
@@ -1145,7 +1161,7 @@ class SineWaveGenerator(QMainWindow):
         knobs_layout.setSpacing(15)
 
         # Attack (use 0-100 range internally, scale to 0-2000 in callback)
-        attack_container = self.create_knob_with_label("Attack", 0, 100, 1,
+        attack_container = self.create_knob_with_label("Attack", 0, 100, 0,
                                                         lambda v: self.update_adsr('attack', v * 20))
         knobs_layout.addWidget(attack_container)
         self.attack_knob = attack_container.findChild(QDial)
@@ -1568,18 +1584,38 @@ class SineWaveGenerator(QMainWindow):
             self.env1.attack = value / 1000.0
             self.env2.attack = value / 1000.0
             self.env3.attack = value / 1000.0
+            # Also update all voice envelopes in real-time
+            for voice in self.voice_pool:
+                voice.env1.attack = value / 1000.0
+                voice.env2.attack = value / 1000.0
+                voice.env3.attack = value / 1000.0
         elif param == 'decay':
             self.env1.decay = value / 1000.0
             self.env2.decay = value / 1000.0
             self.env3.decay = value / 1000.0
+            # Also update all voice envelopes in real-time
+            for voice in self.voice_pool:
+                voice.env1.decay = value / 1000.0
+                voice.env2.decay = value / 1000.0
+                voice.env3.decay = value / 1000.0
         elif param == 'sustain':
             self.env1.sustain = value / 100.0
             self.env2.sustain = value / 100.0
             self.env3.sustain = value / 100.0
+            # Also update all voice envelopes in real-time
+            for voice in self.voice_pool:
+                voice.env1.sustain = value / 100.0
+                voice.env2.sustain = value / 100.0
+                voice.env3.sustain = value / 100.0
         elif param == 'release':
             self.env1.release = value / 1000.0
             self.env2.release = value / 1000.0
             self.env3.release = value / 1000.0
+            # Also update all voice envelopes in real-time
+            for voice in self.voice_pool:
+                voice.env1.release = value / 1000.0
+                voice.env2.release = value / 1000.0
+                voice.env3.release = value / 1000.0
 
     def update_filter(self, param, value):
         """Update filter parameters"""
@@ -2026,6 +2062,10 @@ class SineWaveGenerator(QMainWindow):
             # Add this voice's output to the mix
             mixed += voice_mix
 
+            # Clean up voice if all envelopes are idle (release finished)
+            if not voice.is_active():
+                voice.note = None  # Mark voice as free
+
         # Apply voice count normalization (prevents clipping with multiple voices)
         if active_count > 0:
             # Use sqrt normalization for better perceived loudness
@@ -2137,37 +2177,29 @@ class SineWaveGenerator(QMainWindow):
                 }
             """)
 
-    def on_polyphony_changed(self, value):
-        """Handle polyphony control change"""
-        self.max_polyphony = value
-        self.polyphony_value_label.setText(str(value))
+    def set_voice_mode(self, mode):
+        """Set voice mode: 'mono', 'poly', or 'unison'"""
+        # Update button states
+        self.mono_button.setChecked(mode == 'mono')
+        self.poly_button.setChecked(mode == 'poly')
+        self.unison_button.setChecked(mode == 'unison')
 
-        # When polyphony > 1, disable unison
-        if value > 1:
-            self.unison_dial.setValue(1)
-            self.unison_dial.setEnabled(False)
-            self.unison_detune_dial.setEnabled(False)
-        else:
-            self.unison_dial.setEnabled(True)
-
-        # Reallocate voice pool
-        self.reallocate_voice_pool()
-
-    def on_unison_changed(self, value):
-        """Handle unison control change"""
-        self.unison_count = value
-        self.unison_value_label.setText(str(value))
-
-        # Enable/disable detune control
-        self.unison_detune_dial.setEnabled(value > 1 and self.max_polyphony == 1)
+        # Configure voice settings
+        if mode == 'mono':
+            # Monophonic: 1 voice, no unison
+            self.max_polyphony = 1
+            self.unison_count = 1
+        elif mode == 'poly':
+            # Polyphonic: 8 voices, no unison
+            self.max_polyphony = 8
+            self.unison_count = 1
+        elif mode == 'unison':
+            # Unison: 1 note with 8 detuned voices
+            self.max_polyphony = 1
+            self.unison_count = 8
 
         # Reallocate voice pool
         self.reallocate_voice_pool()
-
-    def on_unison_detune_changed(self, value):
-        """Handle unison detune control change"""
-        self.unison_detune_amount = float(value)
-        self.unison_detune_value_label.setText(f"{value}c")
 
     def manage_audio_stream(self):
         """Start or stop audio stream based on oscillator states"""

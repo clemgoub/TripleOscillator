@@ -24,10 +24,19 @@ A [vibe-coded](https://en.wikipedia.org/wiki/Vibe_coding#:~:text=In%20September%
 - **Real-time Frequency Adjustment**: Smooth frequency changes without clicks
 - **Individual On/Off Controls**: Per-oscillator activation with visual feedback
 
+### Voice Modes & Polyphony
+- **3 Voice Modes**: Simple one-click mode selection
+  - **MONO**: Monophonic - Single voice, classic synth behavior
+  - **POLY**: Polyphonic - Up to 8 simultaneous voices
+  - **UNI**: Unison - 8 detuned voices for supersaw/chorus effect
+- **Computer Keyboard Input**: Play notes using your QWERTY keyboard (piano layout)
+- **MIDI Keyboard Support**: Full MIDI keyboard integration
+- **Voice Stealing**: Intelligent voice management with LRU algorithm
+- **Per-Voice Envelopes**: Each voice has independent ADSR envelopes
+
 ### MIDI Support
 - **MIDI Keyboard Input**: Play notes with any MIDI keyboard
 - **Automatic Mode Switching**: Frequency knobs become detune controls in MIDI mode
-- **Monophonic Voice**: Classic monophonic synthesizer behavior with proper envelope retriggering
 - **Octave Layering**: Combine oscillators at different octaves for rich harmonic textures
 
 ### Mixer
@@ -36,11 +45,13 @@ A [vibe-coded](https://en.wikipedia.org/wiki/Vibe_coding#:~:text=In%20September%
 - **Real-time Mixing**: Adjust oscillator levels on the fly
 
 ### ADSR Envelope Generator
-- **Attack**: 0-2000ms - Control how quickly the sound fades in
+- **Attack**: 0-2000ms - Control how quickly the sound fades in (default: 0ms)
 - **Decay**: 0-2000ms - Control how quickly it drops to sustain level
 - **Sustain**: 0-100% - Set the held level
-- **Release**: 0-5000ms - Control fade-out time after note off
+- **Release**: 0-5000ms - Control fade-out time after note off (default: 300ms)
 - **Per-Oscillator Envelopes**: Each oscillator has its own independent envelope
+- **Per-Voice Envelopes**: In poly/unison modes, each voice has independent envelopes
+- **Real-time Updates**: ADSR changes affect all active voices immediately
 
 ### Low-Pass Filter
 - **Cutoff Frequency**: 20-5000 Hz - Remove frequencies above the cutoff
@@ -130,20 +141,39 @@ classDiagram
         +waveform1, waveform2, waveform3: str
         +gain1, gain2, gain3: float
         +osc1_on, osc2_on, osc3_on: bool
+        +voice_pool: list~Voice~
+        +max_polyphony: int
+        +unison_count: int
         +env1, env2, env3: EnvelopeGenerator
         +filter: LowPassFilter
         +midi_handler: MIDIHandler
         +init_ui()
         +audio_callback()
+        +set_voice_mode(mode)
+        +reallocate_voice_pool()
+        +handle_note_on(note)
+        +handle_note_off(note)
         +toggle_oscillator()
         +generate_waveform()
         +apply_detune()
         +apply_octave()
         +update_pulse_width()
-        +handle_midi_note_on()
+        +update_adsr()
         +save_preset()
         +load_preset()
-        +update_ui_from_preset()
+    }
+
+    class Voice {
+        +note: int
+        +velocity: float
+        +freq1, freq2, freq3: float
+        +phase1, phase2, phase3: float
+        +detune_offset: float
+        +env1, env2, env3: EnvelopeGenerator
+        +last_used: float
+        +is_active()
+        +trigger(note, velocity)
+        +release()
     }
 
     class MIDIHandler {
@@ -175,101 +205,114 @@ classDiagram
         +process(input_signal)
     }
 
-    SineWaveGenerator "1" --> "3" EnvelopeGenerator : contains
+    SineWaveGenerator "1" --> "3" EnvelopeGenerator : template
+    SineWaveGenerator "1" --> "8" Voice : voice pool
     SineWaveGenerator "1" --> "1" LowPassFilter : contains
     SineWaveGenerator "1" --> "1" MIDIHandler : contains
+    Voice "1" --> "3" EnvelopeGenerator : per-voice
 ```
 
 ### Signal Flow
 
 ```mermaid
 graph LR
-    MIDI[MIDI Keyboard] -.->|note events| A
-    MIDI -.->|note events| B
-    MIDI -.->|note events| C
+    MIDI[MIDI/Computer<br/>Keyboard] -.->|note events| VM[Voice Manager]
+    VM --> VP[Voice Pool<br/>Up to 8 Voices]
 
-    A[Oscillator 1<br/>Waveform Generator<br/>+Detune +Octave] --> D[Mixer<br/>Gain Control]
-    B[Oscillator 2<br/>Waveform Generator<br/>+Detune +Octave] --> D
-    C[Oscillator 3<br/>Waveform Generator<br/>+Detune +Octave] --> D
-    D --> E[ADSR Envelope<br/>Amplitude Shaping]
-    E --> F[Low-Pass Filter<br/>Frequency Shaping]
-    F --> G[Audio Output<br/>Stereo 44.1kHz]
+    VP --> V1[Voice 1<br/>3 Oscillators<br/>3 Envelopes]
+    VP --> V2[Voice 2<br/>3 Oscillators<br/>3 Envelopes]
+    VP --> V3[Voice N...<br/>3 Oscillators<br/>3 Envelopes]
 
-    H[UI Controls] -.->|freq/detune| A
-    H -.->|freq/detune| B
-    H -.->|freq/detune| C
-    H -.->|octave| A
-    H -.->|octave| B
-    H -.->|octave| C
-    H -.->|waveform| A
-    H -.->|waveform| B
-    H -.->|waveform| C
-    H -.->|gain| D
-    H -.->|ADSR params| E
-    H -.->|cutoff/resonance| F
-    I[ON/OFF Buttons] -.->|trigger/release| E
+    V1 --> MIX[Mixer<br/>Sum All Voices]
+    V2 --> MIX
+    V3 --> MIX
 
-    J[Preset System<br/>JSON Files] -.->|load| H
-    H -.->|save| J
+    MIX --> FILT[Low-Pass Filter<br/>Cutoff + Resonance]
+    FILT --> OUT[Audio Output<br/>Stereo 44.1kHz]
+
+    UI[UI Controls] -.->|voice mode| VM
+    UI -.->|waveforms| VP
+    UI -.->|detune/octave| VP
+    UI -.->|ADSR params| VP
+    UI -.->|gain| MIX
+    UI -.->|cutoff/resonance| FILT
+
+    PRESET[Preset System<br/>JSON Files] -.->|load| UI
+    UI -.->|save| PRESET
 ```
 
 ### Audio Processing Flow
 
 ```mermaid
 sequenceDiagram
-    participant MIDI as MIDI Keyboard
+    participant INPUT as MIDI/Keyboard Input
     participant UI as User Interface
-    participant OSC as Oscillators
-    participant ENV as ADSR Envelopes
-    participant MIX as Mixer
-    participant FILT as Filter
+    participant VM as Voice Manager
+    participant VOICE as Voice (with 3 OSC + 3 ENV)
+    participant FILT as Low-Pass Filter
     participant OUT as Audio Output
 
-    UI->>OSC: Set detune, octave, waveform
-    UI->>ENV: Set attack, decay, sustain, release
+    UI->>VM: Set voice mode (MONO/POLY/UNI)
+    UI->>VOICE: Set ADSR params (all voices)
     UI->>FILT: Set cutoff, resonance
 
-    MIDI->>OSC: MIDI Note On (base frequency)
-    OSC->>OSC: Apply detune + octave offset
-    MIDI->>ENV: Trigger envelope
+    INPUT->>VM: Note On (MIDI note 60, velocity 100)
 
-    loop Every Audio Buffer (frames)
-        OSC->>OSC: Generate waveforms at final freq
-        OSC->>ENV: Apply envelope shaping
-        ENV->>MIX: Mix oscillators with gain
-        MIX->>FILT: Apply low-pass filter
+    alt MONO Mode
+        VM->>VOICE: Allocate single voice
+        VM->>VOICE: Trigger voice (note 60)
+    else POLY Mode
+        VM->>VOICE: Find free voice or steal oldest
+        VM->>VOICE: Trigger voice (note 60)
+    else UNI Mode
+        VM->>VOICE: Trigger 8 voices (all note 60)
+        VM->>VOICE: Apply detune spread (-20 to +20 cents)
+    end
+
+    loop Every Audio Buffer
+        VOICE->>VOICE: Generate 3 waveforms (sine/saw/square)
+        VOICE->>VOICE: Apply detune + octave offsets
+        VOICE->>VOICE: Process 3 ADSR envelopes
+        VOICE->>VOICE: Mix 3 oscillators with gain
+        VOICE->>VM: Return voice audio
+        VM->>VM: Sum all active voices
+        VM->>FILT: Apply low-pass filter
         FILT->>OUT: Output stereo audio
     end
 
-    alt Drone Mode (No MIDI)
-        UI->>ENV: Button ON (trigger)
-        ENV->>ENV: Attack → Decay → Sustain
-        UI->>ENV: Button OFF (release)
-        ENV->>ENV: Release → Idle
-    else MIDI Mode
-        MIDI->>ENV: Note On (trigger)
-        ENV->>ENV: Attack → Decay → Sustain
-        MIDI->>ENV: Note Off (release)
-        ENV->>ENV: Release → Idle
-    end
+    INPUT->>VM: Note Off (MIDI note 60)
+    VM->>VOICE: Release matching voice(s)
+    VOICE->>VOICE: Start release phase
+    VOICE->>VOICE: Continue until envelope idle
+    VOICE->>VM: Mark voice as free (note = None)
 ```
 
 ### Components
+
+**Voice Management**
+- Pre-allocated voice pool (up to 8 voices)
+- Voice stealing with LRU (Least Recently Used) algorithm
+- Three voice modes: MONO (1 voice), POLY (8 voices), UNI (8 detuned voices)
+- Each voice has independent oscillators, envelopes, and phase accumulators
 
 **Oscillator**
 - Generates waveforms using phase accumulation
 - Maintains phase continuity across frequency changes
 - Supports sine, sawtooth, and square waveforms
+- Independent per-voice oscillators for true polyphony
 
 **ADSR Envelope**
 - State machine with 5 phases: idle, attack, decay, sustain, release
 - Linear interpolation between envelope stages
-- Independent envelope per oscillator
+- Independent envelope per oscillator (3 per voice)
+- Real-time parameter updates affect all active voices
+- Proper release phase management for natural note decay
 
 **Low-Pass Filter**
 - Biquad (2-pole) IIR filter design
 - Adjustable cutoff frequency and resonance (Q factor)
 - Stable and efficient implementation
+- Applied globally after voice mixing
 
 ## Project Structure
 
@@ -306,6 +349,7 @@ This project started as a simple sine wave generator and evolved into a full sub
 8. **UI Polish**: Power button, master volume, and refined circular button styling
 9. **Pulse Width Modulation**: Added PWM controls for square waves (1-99% duty cycle)
 10. **Preset Management**: Implemented forward-compatible preset save/load system
+11. **Polyphony & Unison**: Added computer keyboard input, voice modes (MONO/POLY/UNI), per-voice envelopes, and intelligent voice management
 
 ## Roadmap
 
@@ -314,11 +358,12 @@ Future enhancements:
 - [x] Octave switches for easier musical note selection
 - [x] Pulse width modulation for square waves
 - [x] Preset management (save/load patches)
+- [x] Polyphonic voice support (MONO/POLY/UNI modes)
+- [x] Computer keyboard input for playing notes
 - [ ] LFO (Low-Frequency Oscillator) for modulation
 - [ ] Additional filter types (high-pass, band-pass)
 - [ ] Effects (reverb, delay, distortion)
 - [ ] VST plugin export
-- [ ] Polyphonic voice support
 
 ## License
 
