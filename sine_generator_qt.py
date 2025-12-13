@@ -351,6 +351,57 @@ class LFOGenerator:
         return output
 
 
+class Voice:
+    """Represents a single voice with three oscillators and envelopes"""
+    def __init__(self, sample_rate):
+        self.sample_rate = sample_rate
+        self.note = None  # MIDI note number (None if voice is free)
+        self.velocity = 0
+        self.age = 0  # For voice stealing (oldest-first strategy)
+
+        # Phase accumulators for each oscillator
+        self.phase1 = 0
+        self.phase2 = 2 * np.pi / 3  # Phase offset to reduce interference
+        self.phase3 = 4 * np.pi / 3
+
+        # Envelope generators (independent per voice)
+        self.env1 = EnvelopeGenerator(sample_rate)
+        self.env2 = EnvelopeGenerator(sample_rate)
+        self.env3 = EnvelopeGenerator(sample_rate)
+
+        # Unison detuning offset (set when voice is allocated)
+        self.unison_detune = 0.0  # In cents
+
+    def is_active(self):
+        """Voice is active if any envelope is not idle"""
+        return (self.env1.phase != 'idle' or
+                self.env2.phase != 'idle' or
+                self.env3.phase != 'idle')
+
+    def is_free(self):
+        """Voice is free if no note is assigned and all envelopes are idle"""
+        return self.note is None and not self.is_active()
+
+    def trigger(self, note, velocity, unison_detune=0.0):
+        """Trigger this voice with a note"""
+        self.note = note
+        self.velocity = velocity
+        self.unison_detune = unison_detune
+        self.age = 0
+
+        # Trigger envelopes
+        self.env1.trigger()
+        self.env2.trigger()
+        self.env3.trigger()
+
+    def release(self):
+        """Release this voice"""
+        self.note = None
+        self.env1.release_note()
+        self.env2.release_note()
+        self.env3.release_note()
+
+
 class SineWaveGenerator(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -393,10 +444,14 @@ class SineWaveGenerator(QMainWindow):
         self.gain3 = 0.33
         self.master_volume = 0.5  # Master volume (0.0 to 1.0)
 
-        # Envelope generators (one per oscillator)
+        # Envelope generators (one per oscillator) - TEMPLATE ONLY, not used for audio
         self.env1 = EnvelopeGenerator(self.sample_rate)
         self.env2 = EnvelopeGenerator(self.sample_rate)
         self.env3 = EnvelopeGenerator(self.sample_rate)
+        # Force these template envelopes to idle - they should never be active
+        self.env1.force_reset()
+        self.env2.force_reset()
+        self.env3.force_reset()
 
         # Filter
         self.filter = LowPassFilter(self.sample_rate)
@@ -422,6 +477,17 @@ class SineWaveGenerator(QMainWindow):
         self.midi_handler.note_off.connect(self.handle_midi_note_off)
         self.current_note = None
 
+        # Computer keyboard MIDI
+        self.pressed_keys = set()  # Track currently pressed keys
+        self.keyboard_octave = 4  # Base octave for keyboard (C4 = middle C)
+
+        # Voice management (polyphony and unison)
+        self.max_polyphony = 1  # Number of simultaneous notes (1-8)
+        self.unison_count = 1  # Number of voices per note when polyphony=1 (1-8)
+        self.unison_detune_amount = 10.0  # Detune amount in cents for unison
+        self.voice_pool = []  # Will be created in init_ui
+        self.active_voices = {}  # {note_number: [voice1, voice2, ...]}
+
         # Logarithmic scale parameters
         self.min_freq = 20.0
         self.max_freq = 5000.0
@@ -431,10 +497,13 @@ class SineWaveGenerator(QMainWindow):
         # Initialize UI
         self.init_ui()
 
+        # Initialize voice pool based on polyphony and unison settings
+        self.reallocate_voice_pool()
+
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle("Triple Oscillator Synth")
-        self.setFixedSize(900, 850)
+        self.setFixedSize(1350, 850)
 
         # Create central widget and main layout
         central_widget = QWidget()
@@ -461,6 +530,71 @@ class SineWaveGenerator(QMainWindow):
         midi_layout.addWidget(refresh_button)
 
         midi_layout.addStretch(1)
+
+        # VOICE CONTROLS (Polyphony/Unison)
+        voice_label = QLabel("VOICE:")
+        voice_label.setFont(QFont("Arial", 10))
+        midi_layout.addWidget(voice_label)
+
+        # Polyphony control
+        poly_label = QLabel("Poly:")
+        poly_label.setFont(QFont("Arial", 9))
+        midi_layout.addWidget(poly_label)
+
+        self.polyphony_dial = QDial()
+        self.polyphony_dial.setMinimum(1)
+        self.polyphony_dial.setMaximum(8)
+        self.polyphony_dial.setValue(1)
+        self.polyphony_dial.setFixedSize(40, 40)
+        self.polyphony_dial.valueChanged.connect(self.on_polyphony_changed)
+        midi_layout.addWidget(self.polyphony_dial)
+
+        self.polyphony_value_label = QLabel("1")
+        self.polyphony_value_label.setFont(QFont("Arial", 9))
+        self.polyphony_value_label.setFixedWidth(20)
+        self.polyphony_value_label.setAlignment(Qt.AlignCenter)
+        midi_layout.addWidget(self.polyphony_value_label)
+
+        # Unison control
+        unison_label = QLabel("Uni:")
+        unison_label.setFont(QFont("Arial", 9))
+        midi_layout.addWidget(unison_label)
+
+        self.unison_dial = QDial()
+        self.unison_dial.setMinimum(1)
+        self.unison_dial.setMaximum(8)
+        self.unison_dial.setValue(1)
+        self.unison_dial.setFixedSize(40, 40)
+        self.unison_dial.valueChanged.connect(self.on_unison_changed)
+        midi_layout.addWidget(self.unison_dial)
+
+        self.unison_value_label = QLabel("1")
+        self.unison_value_label.setFont(QFont("Arial", 9))
+        self.unison_value_label.setFixedWidth(20)
+        self.unison_value_label.setAlignment(Qt.AlignCenter)
+        midi_layout.addWidget(self.unison_value_label)
+
+        # Unison detune control
+        detune_label = QLabel("Det:")
+        detune_label.setFont(QFont("Arial", 9))
+        midi_layout.addWidget(detune_label)
+
+        self.unison_detune_dial = QDial()
+        self.unison_detune_dial.setMinimum(0)
+        self.unison_detune_dial.setMaximum(50)
+        self.unison_detune_dial.setValue(10)
+        self.unison_detune_dial.setFixedSize(40, 40)
+        self.unison_detune_dial.setEnabled(False)  # Disabled initially
+        self.unison_detune_dial.valueChanged.connect(self.on_unison_detune_changed)
+        midi_layout.addWidget(self.unison_detune_dial)
+
+        self.unison_detune_value_label = QLabel("10c")
+        self.unison_detune_value_label.setFont(QFont("Arial", 9))
+        self.unison_detune_value_label.setFixedWidth(30)
+        self.unison_detune_value_label.setAlignment(Qt.AlignCenter)
+        midi_layout.addWidget(self.unison_detune_value_label)
+
+        midi_layout.addSpacing(20)
 
         # Power button
         self.power_button = QPushButton("POWER ON")
@@ -760,8 +894,8 @@ class SineWaveGenerator(QMainWindow):
             }
         """)
 
-        # Octave label
-        octave_label = QLabel("0")
+        # Octave label (using organ footage notation)
+        octave_label = QLabel("8'")
         octave_label.setAlignment(Qt.AlignCenter)
         octave_label.setFont(QFont("Arial", 9))
         octave_label.setFixedWidth(30)
@@ -1302,11 +1436,22 @@ class SineWaveGenerator(QMainWindow):
         """Apply octave offset to a frequency"""
         return freq * (2.0 ** octave_offset)
 
+    def octave_to_footage(self, octave):
+        """Convert octave offset to organ footage notation"""
+        footage_map = {
+            -2: "32'",
+            -1: "16'",
+            0: "8'",
+            1: "4'",
+            2: "2'"
+        }
+        return footage_map.get(octave, "8'")
+
     def change_octave(self, osc_num, direction):
         """Change octave offset for an oscillator (+1 or -1)"""
         if osc_num == 1:
-            self.octave1 = max(-3, min(3, self.octave1 + direction))
-            self.octave1_label.setText(f"{self.octave1:+d}" if self.octave1 != 0 else "0")
+            self.octave1 = max(-2, min(2, self.octave1 + direction))
+            self.octave1_label.setText(self.octave_to_footage(self.octave1))
             # Recalculate frequency with new octave
             if self.midi_handler.running and self.current_note is not None:
                 base_freq = self.midi_note_to_freq(self.current_note)
@@ -1316,8 +1461,8 @@ class SineWaveGenerator(QMainWindow):
                 base_freq = self.freq1 / (2.0 ** (self.octave1 - direction))  # Undo previous octave
                 self.freq1 = self.apply_octave(base_freq, self.octave1)
         elif osc_num == 2:
-            self.octave2 = max(-3, min(3, self.octave2 + direction))
-            self.octave2_label.setText(f"{self.octave2:+d}" if self.octave2 != 0 else "0")
+            self.octave2 = max(-2, min(2, self.octave2 + direction))
+            self.octave2_label.setText(self.octave_to_footage(self.octave2))
             if self.midi_handler.running and self.current_note is not None:
                 base_freq = self.midi_note_to_freq(self.current_note)
                 self.freq2 = self.apply_octave(self.apply_detune(base_freq, self.detune2), self.octave2)
@@ -1325,8 +1470,8 @@ class SineWaveGenerator(QMainWindow):
                 base_freq = self.freq2 / (2.0 ** (self.octave2 - direction))
                 self.freq2 = self.apply_octave(base_freq, self.octave2)
         else:
-            self.octave3 = max(-3, min(3, self.octave3 + direction))
-            self.octave3_label.setText(f"{self.octave3:+d}" if self.octave3 != 0 else "0")
+            self.octave3 = max(-2, min(2, self.octave3 + direction))
+            self.octave3_label.setText(self.octave_to_footage(self.octave3))
             if self.midi_handler.running and self.current_note is not None:
                 base_freq = self.midi_note_to_freq(self.current_note)
                 self.freq3 = self.apply_octave(self.apply_detune(base_freq, self.detune3), self.octave3)
@@ -1648,6 +1793,88 @@ class SineWaveGenerator(QMainWindow):
                 }
             """)
 
+    def reallocate_voice_pool(self):
+        """Create voice pool based on max_polyphony and unison_count"""
+        # Total voices needed: max_polyphony * unison_count (max 8 total)
+        total_voices = min(8, self.max_polyphony * self.unison_count)
+
+        # Create new voice pool
+        self.voice_pool = [Voice(self.sample_rate) for _ in range(total_voices)]
+
+        # Clear active voices
+        self.active_voices = {}
+
+        # Copy envelope settings to all voices
+        for voice in self.voice_pool:
+            voice.env1.attack = self.env1.attack
+            voice.env1.decay = self.env1.decay
+            voice.env1.sustain = self.env1.sustain
+            voice.env1.release = self.env1.release
+
+            voice.env2.attack = self.env2.attack
+            voice.env2.decay = self.env2.decay
+            voice.env2.sustain = self.env2.sustain
+            voice.env2.release = self.env2.release
+
+            voice.env3.attack = self.env3.attack
+            voice.env3.decay = self.env3.decay
+            voice.env3.sustain = self.env3.sustain
+            voice.env3.release = self.env3.release
+
+    def calculate_unison_detune_pattern(self, unison_count):
+        """Returns list of detune amounts in cents for unison voices
+
+        Args:
+            unison_count: Number of unison voices (1-8)
+
+        Returns:
+            List of detune values in cents
+        """
+        if unison_count <= 1:
+            return [0.0]
+
+        # Symmetric detune pattern around center
+        # For 2 voices: [-detune, +detune]
+        # For 3 voices: [-detune, 0, +detune]
+        # For 4 voices: [-detune, -detune/3, +detune/3, +detune]
+        # etc.
+
+        detune_pattern = []
+        for i in range(unison_count):
+            # Map i from 0..(count-1) to -1..+1
+            if unison_count == 1:
+                offset = 0.0
+            else:
+                offset = -1.0 + (2.0 * i / (unison_count - 1))
+
+            detune_pattern.append(offset * self.unison_detune_amount)
+
+        return detune_pattern
+
+    def steal_voice(self):
+        """Find best voice to steal (prefer oldest in release phase)
+
+        Returns:
+            Voice object to steal, or None if no voice available
+        """
+        if not self.voice_pool:
+            return None
+
+        # First, try to find a voice in release phase (oldest first)
+        release_voices = [v for v in self.voice_pool
+                         if v.env1.phase == 'release' or v.env2.phase == 'release' or v.env3.phase == 'release']
+        if release_voices:
+            # Return oldest release voice
+            return max(release_voices, key=lambda v: v.age)
+
+        # If no release voices, try to find idle voices
+        idle_voices = [v for v in self.voice_pool if v.is_free()]
+        if idle_voices:
+            return idle_voices[0]
+
+        # Last resort: steal oldest active voice
+        return max(self.voice_pool, key=lambda v: v.age)
+
     def generate_waveform(self, waveform_type, phase, phase_increment, frames, pulse_width=0.5):
         """Generate a waveform based on type
 
@@ -1672,7 +1899,7 @@ class SineWaveGenerator(QMainWindow):
             return np.sin(phases)
 
     def audio_callback(self, outdata, frames, time, status):
-        """Generate and mix three oscillators with envelopes and filter"""
+        """Generate and mix all active voices with envelopes and filter"""
         # Don't print in audio callback - causes buffer underruns
 
         # If power is off, output silence
@@ -1684,74 +1911,128 @@ class SineWaveGenerator(QMainWindow):
         # Generate LFO signal (-1 to 1)
         lfo_signal = self.lfo.process(frames)
 
+        # Create empty mixed output
         mixed = np.zeros(frames)
 
-        # Generate oscillator 1 (only if on)
-        if self.osc1_on:
-            # Apply pitch modulation (vibrato) - LFO modulates frequency ±5% max
-            freq_mod = 1.0 + (lfo_signal * 0.05 * self.lfo_to_osc1_pitch)
-            modulated_freq1 = self.freq1 * freq_mod
-            phase_increment1 = 2 * np.pi * modulated_freq1 / self.sample_rate
+        # Count active voices for normalization
+        active_count = 0
 
-            # Apply pulse width modulation
-            pw_mod = lfo_signal * 0.3 * self.lfo_to_osc1_pw  # ±30% max modulation
-            modulated_pw1 = np.clip(self.pulse_width1 + pw_mod, 0.01, 0.99)
+        # Loop through all voices in voice pool
+        for voice in self.voice_pool:
+            # Skip voices that are not active
+            if not voice.is_active():
+                continue
 
-            wave1 = self.generate_waveform(self.waveform1, self.phase1, phase_increment1, frames, modulated_pw1)
-            env1 = self.env1.process(frames)
+            # Skip voices with no note assigned (safety check - shouldn't happen)
+            if voice.note is None:
+                continue
 
-            # Apply volume modulation (tremolo)
-            vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc1_volume)
-            modulated_gain1 = self.gain1 * np.clip(vol_mod, 0.0, 1.0)
+            # Increment active voice count
+            active_count += 1
 
-            mixed += modulated_gain1 * wave1 * env1
-            self.phase1 = (self.phase1 + frames * phase_increment1) % (2 * np.pi)
+            # Increment voice age for stealing priority
+            voice.age += 1
 
-        # Generate oscillator 2 (only if on)
-        if self.osc2_on:
-            # Apply pitch modulation
-            freq_mod = 1.0 + (lfo_signal * 0.05 * self.lfo_to_osc2_pitch)
-            modulated_freq2 = self.freq2 * freq_mod
-            phase_increment2 = 2 * np.pi * modulated_freq2 / self.sample_rate
+            # Calculate base frequency for this voice's note
+            base_freq = self.midi_note_to_freq(voice.note)
 
-            # Apply pulse width modulation
-            pw_mod = lfo_signal * 0.3 * self.lfo_to_osc2_pw
-            modulated_pw2 = np.clip(self.pulse_width2 + pw_mod, 0.01, 0.99)
+            # Apply unison detune to base frequency
+            base_freq_detuned = self.apply_detune(base_freq, voice.unison_detune)
 
-            wave2 = self.generate_waveform(self.waveform2, self.phase2, phase_increment2, frames, modulated_pw2)
-            env2 = self.env2.process(frames)
+            # Generate each oscillator for this voice
+            voice_mix = np.zeros(frames)
 
-            # Apply volume modulation
-            vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc2_volume)
-            modulated_gain2 = self.gain2 * np.clip(vol_mod, 0.0, 1.0)
+            # Oscillator 1
+            if self.osc1_on:
+                # Apply oscillator-specific detune and octave
+                freq1 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune1), self.octave1)
 
-            mixed += modulated_gain2 * wave2 * env2
-            self.phase2 = (self.phase2 + frames * phase_increment2) % (2 * np.pi)
+                # Apply pitch modulation (vibrato) - use mean for phase increment calculation
+                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc1_pitch)
+                modulated_freq1 = freq1 * freq_mod_scalar
+                phase_increment1 = 2 * np.pi * modulated_freq1 / self.sample_rate
 
-        # Generate oscillator 3 (only if on)
-        if self.osc3_on:
-            # Apply pitch modulation
-            freq_mod = 1.0 + (lfo_signal * 0.05 * self.lfo_to_osc3_pitch)
-            modulated_freq3 = self.freq3 * freq_mod
-            phase_increment3 = 2 * np.pi * modulated_freq3 / self.sample_rate
+                # Apply pulse width modulation - use mean for pw calculation
+                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc1_pw
+                modulated_pw1 = np.clip(self.pulse_width1 + pw_mod, 0.01, 0.99)
 
-            # Apply pulse width modulation
-            pw_mod = lfo_signal * 0.3 * self.lfo_to_osc3_pw
-            modulated_pw3 = np.clip(self.pulse_width3 + pw_mod, 0.01, 0.99)
+                # Generate waveform using voice's phase
+                wave1 = self.generate_waveform(self.waveform1, voice.phase1, phase_increment1, frames, modulated_pw1)
+                env1 = voice.env1.process(frames)
 
-            wave3 = self.generate_waveform(self.waveform3, self.phase3, phase_increment3, frames, modulated_pw3)
-            env3 = self.env3.process(frames)
+                # Apply volume modulation (tremolo) - apply as array
+                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc1_volume)
+                modulated_gain1 = self.gain1 * np.clip(vol_mod, 0.0, 1.0)
 
-            # Apply volume modulation
-            vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc3_volume)
-            modulated_gain3 = self.gain3 * np.clip(vol_mod, 0.0, 1.0)
+                voice_mix += modulated_gain1 * wave1 * env1
 
-            mixed += modulated_gain3 * wave3 * env3
-            self.phase3 = (self.phase3 + frames * phase_increment3) % (2 * np.pi)
+                # Update voice phase
+                voice.phase1 = (voice.phase1 + frames * phase_increment1) % (2 * np.pi)
+
+            # Oscillator 2
+            if self.osc2_on:
+                # Apply oscillator-specific detune and octave
+                freq2 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune2), self.octave2)
+
+                # Apply pitch modulation - use mean for phase increment calculation
+                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc2_pitch)
+                modulated_freq2 = freq2 * freq_mod_scalar
+                phase_increment2 = 2 * np.pi * modulated_freq2 / self.sample_rate
+
+                # Apply pulse width modulation - use mean for pw calculation
+                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc2_pw
+                modulated_pw2 = np.clip(self.pulse_width2 + pw_mod, 0.01, 0.99)
+
+                # Generate waveform using voice's phase
+                wave2 = self.generate_waveform(self.waveform2, voice.phase2, phase_increment2, frames, modulated_pw2)
+                env2 = voice.env2.process(frames)
+
+                # Apply volume modulation - apply as array
+                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc2_volume)
+                modulated_gain2 = self.gain2 * np.clip(vol_mod, 0.0, 1.0)
+
+                voice_mix += modulated_gain2 * wave2 * env2
+
+                # Update voice phase
+                voice.phase2 = (voice.phase2 + frames * phase_increment2) % (2 * np.pi)
+
+            # Oscillator 3
+            if self.osc3_on:
+                # Apply oscillator-specific detune and octave
+                freq3 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune3), self.octave3)
+
+                # Apply pitch modulation - use mean for phase increment calculation
+                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc3_pitch)
+                modulated_freq3 = freq3 * freq_mod_scalar
+                phase_increment3 = 2 * np.pi * modulated_freq3 / self.sample_rate
+
+                # Apply pulse width modulation - use mean for pw calculation
+                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc3_pw
+                modulated_pw3 = np.clip(self.pulse_width3 + pw_mod, 0.01, 0.99)
+
+                # Generate waveform using voice's phase
+                wave3 = self.generate_waveform(self.waveform3, voice.phase3, phase_increment3, frames, modulated_pw3)
+                env3 = voice.env3.process(frames)
+
+                # Apply volume modulation - apply as array
+                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc3_volume)
+                modulated_gain3 = self.gain3 * np.clip(vol_mod, 0.0, 1.0)
+
+                voice_mix += modulated_gain3 * wave3 * env3
+
+                # Update voice phase
+                voice.phase3 = (voice.phase3 + frames * phase_increment3) % (2 * np.pi)
+
+            # Add this voice's output to the mix
+            mixed += voice_mix
+
+        # Apply voice count normalization (prevents clipping with multiple voices)
+        if active_count > 0:
+            # Use sqrt normalization for better perceived loudness
+            normalization = 1.0 / np.sqrt(active_count)
+            mixed *= normalization
 
         # Apply filter with LFO modulation to cutoff
-        # LFO modulates cutoff ±2 octaves (4x range)
-        # Use mean LFO value for filter (filters can't do per-sample modulation efficiently)
         if self.lfo_to_filter_cutoff > 0:
             lfo_mean = np.mean(lfo_signal)
             cutoff_mod = 2.0 ** (lfo_mean * 2.0 * self.lfo_to_filter_cutoff)  # ±2 octaves
@@ -1771,27 +2052,12 @@ class SineWaveGenerator(QMainWindow):
         if osc_num == 1:
             self.osc1_on = not self.osc1_on
             button = self.osc1_button
-            if self.osc1_on:
-                self.phase1 = 0  # Osc1 starts at 0
-                self.env1.trigger()
-            else:
-                self.env1.force_reset()  # Force to idle so next trigger starts from 0
         elif osc_num == 2:
             self.osc2_on = not self.osc2_on
             button = self.osc2_button
-            if self.osc2_on:
-                self.phase2 = 2 * np.pi / 3  # Phase offset to reduce interference
-                self.env2.trigger()
-            else:
-                self.env2.force_reset()  # Force to idle so next trigger starts from 0
         else:
             self.osc3_on = not self.osc3_on
             button = self.osc3_button
-            if self.osc3_on:
-                self.phase3 = 4 * np.pi / 3  # Phase offset to reduce interference
-                self.env3.trigger()
-            else:
-                self.env3.force_reset()  # Force to idle so next trigger starts from 0
 
         # Update button appearance
         is_on = self.osc1_on if osc_num == 1 else (self.osc2_on if osc_num == 2 else self.osc3_on)
@@ -1870,6 +2136,38 @@ class SineWaveGenerator(QMainWindow):
                     background-color: #3d0a0a;
                 }
             """)
+
+    def on_polyphony_changed(self, value):
+        """Handle polyphony control change"""
+        self.max_polyphony = value
+        self.polyphony_value_label.setText(str(value))
+
+        # When polyphony > 1, disable unison
+        if value > 1:
+            self.unison_dial.setValue(1)
+            self.unison_dial.setEnabled(False)
+            self.unison_detune_dial.setEnabled(False)
+        else:
+            self.unison_dial.setEnabled(True)
+
+        # Reallocate voice pool
+        self.reallocate_voice_pool()
+
+    def on_unison_changed(self, value):
+        """Handle unison control change"""
+        self.unison_count = value
+        self.unison_value_label.setText(str(value))
+
+        # Enable/disable detune control
+        self.unison_detune_dial.setEnabled(value > 1 and self.max_polyphony == 1)
+
+        # Reallocate voice pool
+        self.reallocate_voice_pool()
+
+    def on_unison_detune_changed(self, value):
+        """Handle unison detune control change"""
+        self.unison_detune_amount = float(value)
+        self.unison_detune_value_label.setText(f"{value}c")
 
     def manage_audio_stream(self):
         """Start or stop audio stream based on oscillator states"""
@@ -1982,40 +2280,185 @@ class SineWaveGenerator(QMainWindow):
         return 440.0 * (2.0 ** ((note - 69) / 12.0))
 
     def handle_midi_note_on(self, note, velocity):
-        """Handle MIDI note on message"""
+        """Handle MIDI note on message with polyphony/unison support"""
         self.current_note = note
-        base_freq = self.midi_note_to_freq(note)
 
-        # Apply detune and octave offsets to each oscillator
+        # In monophonic mode, force-reset all currently playing voices first
+        if self.max_polyphony == 1:
+            # Force reset all voices from any previous notes (immediate cutoff)
+            for note_num, voices in list(self.active_voices.items()):
+                for voice in voices:
+                    voice.env1.force_reset()
+                    voice.env2.force_reset()
+                    voice.env3.force_reset()
+                    voice.note = None
+            # Clear active voices dict for monophonic mode
+            self.active_voices = {}
+
+        # Calculate how many voices we need for this note
+        if self.max_polyphony == 1:
+            # Monophonic mode with unison
+            voices_needed = self.unison_count
+        else:
+            # Polyphonic mode (unison disabled)
+            voices_needed = 1
+
+        # Calculate unison detune pattern
+        detune_pattern = self.calculate_unison_detune_pattern(voices_needed)
+
+        # Find available voices
+        available_voices = []
+
+        # First, try to find free voices
+        for voice in self.voice_pool:
+            if voice.is_free() and voice not in available_voices:
+                available_voices.append(voice)
+                if len(available_voices) >= voices_needed:
+                    break
+
+        # If not enough free voices, steal voices (with safety limit)
+        steal_attempts = 0
+        max_steal_attempts = len(self.voice_pool) * 2  # Safety limit
+        while len(available_voices) < voices_needed and steal_attempts < max_steal_attempts:
+            steal_attempts += 1
+            stolen_voice = self.steal_voice()
+            if stolen_voice is None:
+                break  # No voices available to steal
+            if stolen_voice not in available_voices:
+                available_voices.append(stolen_voice)
+            else:
+                # steal_voice() returned a voice we already have, try next iteration
+                continue
+
+        # Trigger voices with appropriate detune offsets
+        allocated_voices = []
+        for i, voice in enumerate(available_voices[:voices_needed]):
+            unison_detune = detune_pattern[i] if i < len(detune_pattern) else 0.0
+            voice.trigger(note, velocity, unison_detune)
+            allocated_voices.append(voice)
+
+        # Track active voices for this note
+        self.active_voices[note] = allocated_voices
+
+        # Update legacy freq variables for backward compatibility
+        # (used by UI display and some controls)
+        base_freq = self.midi_note_to_freq(note)
         self.freq1 = self.apply_octave(self.apply_detune(base_freq, self.detune1), self.octave1)
         self.freq2 = self.apply_octave(self.apply_detune(base_freq, self.detune2), self.octave2)
         self.freq3 = self.apply_octave(self.apply_detune(base_freq, self.detune3), self.octave3)
-
-        # Labels show detune in MIDI mode, not frequency
-        # (they're updated in update_frequency when knobs are moved)
-
-        # Don't reset filter - let it maintain state for smooth transitions
-
-        # Only trigger envelopes on oscillators that are already enabled
-        # This prevents forcing all oscillators on and causing clipping
-        if self.osc1_on:
-            self.env1.trigger()
-        if self.osc2_on:
-            self.env2.trigger()
-        if self.osc3_on:
-            self.env3.trigger()
 
         # Start audio if needed
         self.manage_audio_stream()
 
     def handle_midi_note_off(self, note):
-        """Handle MIDI note off message"""
+        """Handle MIDI note off message with voice management"""
+        # Look up voices for this note
+        if note in self.active_voices:
+            voices = self.active_voices[note]
+
+            # Release all voices for this note
+            for voice in voices:
+                voice.release()
+
+            # Remove from active voices dict
+            del self.active_voices[note]
+
+        # Update legacy current_note for backward compatibility
         if self.current_note == note:
-            # Release envelopes
-            self.env1.release_note()
-            self.env2.release_note()
-            self.env3.release_note()
             self.current_note = None
+
+    def get_keyboard_note_mapping(self):
+        """Map keyboard keys to MIDI notes (piano-style layout)"""
+        # Bottom row: Z X C V B N M , . /  (white keys C-E)
+        # Middle row: A S D F G H J K L ;  (white keys C-E one octave up)
+        # Top row:    Q W E R T Y U I O P  (white keys C-E two octaves up)
+        # Black keys (sharps): W E  T Y U  (using number row)
+
+        base_note = self.keyboard_octave * 12  # C in current octave
+
+        return {
+            # Bottom row - Octave 0 (relative to keyboard_octave)
+            Qt.Key_Z: base_note + 0,   # C
+            Qt.Key_S: base_note + 1,   # C#
+            Qt.Key_X: base_note + 2,   # D
+            Qt.Key_D: base_note + 3,   # D#
+            Qt.Key_C: base_note + 4,   # E
+            Qt.Key_V: base_note + 5,   # F
+            Qt.Key_G: base_note + 6,   # F#
+            Qt.Key_B: base_note + 7,   # G
+            Qt.Key_H: base_note + 8,   # G#
+            Qt.Key_N: base_note + 9,   # A
+            Qt.Key_J: base_note + 10,  # A#
+            Qt.Key_M: base_note + 11,  # B
+            Qt.Key_Comma: base_note + 12,  # C (next octave)
+
+            # Top row - Octave +1
+            Qt.Key_Q: base_note + 12,  # C
+            Qt.Key_2: base_note + 13,  # C#
+            Qt.Key_W: base_note + 14,  # D
+            Qt.Key_3: base_note + 15,  # D#
+            Qt.Key_E: base_note + 16,  # E
+            Qt.Key_R: base_note + 17,  # F
+            Qt.Key_5: base_note + 18,  # F#
+            Qt.Key_T: base_note + 19,  # G
+            Qt.Key_6: base_note + 20,  # G#
+            Qt.Key_Y: base_note + 21,  # A
+            Qt.Key_7: base_note + 22,  # A#
+            Qt.Key_U: base_note + 23,  # B
+            Qt.Key_I: base_note + 24,  # C (next octave)
+        }
+
+    def keyPressEvent(self, event):
+        """Handle keyboard key press for MIDI input"""
+        # Ignore auto-repeat
+        if event.isAutoRepeat():
+            return
+
+        key = event.key()
+
+        # Octave controls: Z and X shift octave down/up
+        if key == Qt.Key_BracketLeft:
+            self.keyboard_octave = max(0, self.keyboard_octave - 1)
+            print(f"Keyboard octave: {self.keyboard_octave}")
+            return
+        elif key == Qt.Key_BracketRight:
+            self.keyboard_octave = min(8, self.keyboard_octave + 1)
+            print(f"Keyboard octave: {self.keyboard_octave}")
+            return
+
+        # Check if key is mapped to a note
+        note_mapping = self.get_keyboard_note_mapping()
+        if key in note_mapping:
+            midi_note = note_mapping[key]
+
+            # Avoid retriggering if key is already pressed
+            if key not in self.pressed_keys:
+                self.pressed_keys.add(key)
+                # Trigger note on (velocity 100)
+                self.handle_midi_note_on(midi_note, 100)
+
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        """Handle keyboard key release for MIDI input"""
+        # Ignore auto-repeat
+        if event.isAutoRepeat():
+            return
+
+        key = event.key()
+
+        # Check if key is mapped to a note
+        note_mapping = self.get_keyboard_note_mapping()
+        if key in note_mapping:
+            midi_note = note_mapping[key]
+
+            # Remove from pressed keys
+            if key in self.pressed_keys:
+                self.pressed_keys.discard(key)
+                # Trigger note off
+                self.handle_midi_note_off(midi_note)
+
+        super().keyReleaseEvent(event)
 
     def closeEvent(self, event):
         """Clean up when window is closed"""
