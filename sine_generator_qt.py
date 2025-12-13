@@ -687,7 +687,7 @@ class SineWaveGenerator(QMainWindow):
 
         # TOP SECTION: Four column layout (Oscillators + Mixer)
         columns_layout = QHBoxLayout()
-        columns_layout.setSpacing(10)
+        columns_layout.setSpacing(20)
 
         # OSCILLATOR 1 COLUMN
         osc1_widget = self.create_oscillator_column("Oscillator 1", 1)
@@ -2301,7 +2301,7 @@ class SineWaveGenerator(QMainWindow):
                     self.env3.release_note()
 
                 # Set knobs to center (0 cents) and update labels
-                center_value = 500  # Middle of 0-1000 range = 0 cents
+                center_value = 50  # Middle of 0-100 range = 0 cents
                 self.freq1_knob.setValue(center_value)
                 self.freq2_knob.setValue(center_value)
                 self.freq3_knob.setValue(center_value)
