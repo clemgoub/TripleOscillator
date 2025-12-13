@@ -491,7 +491,7 @@ class SineWaveGenerator(QMainWindow):
         # Voice management (polyphony and unison)
         self.max_polyphony = 1  # Number of simultaneous notes (1-8)
         self.unison_count = 1  # Number of voices per note when polyphony=1 (1-8)
-        self.unison_detune_amount = 2.0  # Detune amount in cents for unison (subtle chorus effect)
+        self.unison_detune_amount = 0.0  # Detune amount in cents for unison (0=tight, 5=chorus, 10=supersaw)
         self.voice_pool = []  # Will be created in init_ui
         self.active_voices = {}  # {note_number: [voice1, voice2, ...]}
 
@@ -2073,7 +2073,10 @@ class SineWaveGenerator(QMainWindow):
                 voice.note = None  # Mark voice as free
 
         # Apply voice count normalization (prevents clipping with multiple voices)
-        if active_count > 0:
+        # BUT: In unison mode (max_polyphony=1), all voices are playing the same note,
+        # so we want full volume without normalization for thick unison sound
+        if active_count > 0 and self.max_polyphony > 1:
+            # Only normalize in polyphonic mode where multiple different notes play
             # Use sqrt normalization for better perceived loudness
             normalization = 1.0 / np.sqrt(active_count)
             mixed *= normalization
