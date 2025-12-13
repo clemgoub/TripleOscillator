@@ -2302,7 +2302,11 @@ class SineWaveGenerator(QMainWindow):
                 # Labels will be updated by update_frequency callbacks
         else:
             self.midi_handler.stop()
-            # Switch to drone mode: update labels to show frequency
+            # Switch to drone mode: reset knobs to 0 (minimum frequency)
+            self.freq1_knob.setValue(0)
+            self.freq2_knob.setValue(0)
+            self.freq3_knob.setValue(0)
+            # Update labels to show frequency (will be updated by update_frequency callbacks)
             self.freq1_label.setText(f"{self.freq1:.1f} Hz")
             self.freq2_label.setText(f"{self.freq2:.1f} Hz")
             self.freq3_label.setText(f"{self.freq3:.1f} Hz")
