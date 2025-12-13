@@ -360,7 +360,10 @@ Future enhancements:
 - [x] Preset management (save/load patches)
 - [x] Polyphonic voice support (MONO/POLY/UNI modes)
 - [x] Computer keyboard input for playing notes
-- [ ] LFO (Low-Frequency Oscillator) for modulation
+- [x] LFO (Low-Frequency Oscillator) for modulation
+- [ ] Fine tune knobs
+- [ ] Center tune knobs % to top instead of right
+- [ ] Create 10-20 presets and save them on git
 - [ ] Additional filter types (high-pass, band-pass)
 - [ ] Effects (reverb, delay, distortion)
 - [ ] VST plugin export
