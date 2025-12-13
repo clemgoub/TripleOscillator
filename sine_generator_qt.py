@@ -359,10 +359,10 @@ class Voice:
         self.velocity = 0
         self.age = 0  # For voice stealing (oldest-first strategy)
 
-        # Phase accumulators for each oscillator
+        # Phase accumulators for each oscillator (all start at 0 for clean unison)
         self.phase1 = 0
-        self.phase2 = 2 * np.pi / 3  # Phase offset to reduce interference
-        self.phase3 = 4 * np.pi / 3
+        self.phase2 = 0
+        self.phase3 = 0
 
         # Envelope generators (independent per voice)
         self.env1 = EnvelopeGenerator(sample_rate)
@@ -491,7 +491,7 @@ class SineWaveGenerator(QMainWindow):
         # Voice management (polyphony and unison)
         self.max_polyphony = 1  # Number of simultaneous notes (1-8)
         self.unison_count = 1  # Number of voices per note when polyphony=1 (1-8)
-        self.unison_detune_amount = 10.0  # Detune amount in cents for unison
+        self.unison_detune_amount = 2.0  # Detune amount in cents for unison (subtle chorus effect)
         self.voice_pool = []  # Will be created in init_ui
         self.active_voices = {}  # {note_number: [voice1, voice2, ...]}
 
