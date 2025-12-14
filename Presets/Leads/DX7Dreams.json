@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "oscillators": {
+    "osc1": {
+      "waveform": "Sine",
+      "frequency": 440.0,
+      "detune": 0.0,
+      "octave": 0,
+      "pulse_width": 0.5,
+      "gain": 0.4
+    },
+    "osc2": {
+      "waveform": "Sine",
+      "frequency": 440.0,
+      "detune": 0.0,
+      "octave": 1,
+      "pulse_width": 0.5,
+      "gain": 0.3
+    },
+    "osc3": {
+      "waveform": "Sine",
+      "frequency": 440.0,
+      "detune": 0.0,
+      "octave": 2,
+      "pulse_width": 0.5,
+      "gain": 0.25
+    }
+  },
+  "envelope": {
+    "attack": 0.015,
+    "decay": 0.3,
+    "sustain": 0.6,
+    "release": 0.4
+  },
+  "filter": {
+    "cutoff": 3500.0,
+    "resonance": 0.2
+  },
+  "master": {
+    "volume": 0.27,
+    "power": true
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "oscillators": {
+    "osc1": {
+      "waveform": "Sawtooth",
+      "frequency": 174.61,
+      "detune": -4.0,
+      "octave": 0,
+      "pulse_width": 0.5,
+      "gain": 0.33
+    },
+    "osc2": {
+      "waveform": "Sawtooth",
+      "frequency": 174.61,
+      "detune": 0.0,
+      "octave": 0,
+      "pulse_width": 0.5,
+      "gain": 0.35
+    },
+    "osc3": {
+      "waveform": "Sawtooth",
+      "frequency": 174.61,
+      "detune": 4.0,
+      "octave": 0,
+      "pulse_width": 0.5,
+      "gain": 0.32
+    }
+  },
+  "envelope": {
+    "attack": 0.001,
+    "decay": 0.05,
+    "sustain": 0.0,
+    "release": 0.05
+  },
+  "filter": {
+    "cutoff": 2000.0,
+    "resonance": 0.45
+  },
+  "master": {
+    "volume": 0.3,
+    "power": true
+  }
+}
