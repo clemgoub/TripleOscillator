@@ -80,8 +80,8 @@ A [vibe-coded](https://en.wikipedia.org/wiki/Vibe_coding#:~:text=In%20September%
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/sine-synth.git
-cd sine-synth
+git clone https://github.com/clemgoub/TripleOscillator.git
+cd TripleOscillator
 ```
 
 2. Create a virtual environment:
