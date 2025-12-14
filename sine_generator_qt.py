@@ -2072,6 +2072,16 @@ class SineWaveGenerator(QMainWindow):
             if not voice.is_active():
                 voice.note = None  # Mark voice as free
 
+        # Clean up active_voices dictionary - remove entries with all idle voices
+        notes_to_remove = []
+        for note, voices in self.active_voices.items():
+            # Check if all voices for this note are now idle
+            if all(not v.is_active() for v in voices):
+                notes_to_remove.append(note)
+
+        for note in notes_to_remove:
+            del self.active_voices[note]
+
         # Apply voice count normalization (prevents clipping with multiple voices)
         # BUT: In unison mode (max_polyphony=1), all voices are playing the same note,
         # so we want full volume without normalization for thick unison sound
@@ -2328,15 +2338,15 @@ class SineWaveGenerator(QMainWindow):
         """Handle MIDI note on message with polyphony/unison support"""
         self.current_note = note
 
-        # In monophonic mode, force-reset all currently playing voices first
+        # In monophonic mode, force-reset ALL voices in the pool (not just active ones)
+        # This ensures all 8 voices are immediately available for unison triggering
         if self.max_polyphony == 1:
-            # Force reset all voices from any previous notes (immediate cutoff)
-            for note_num, voices in list(self.active_voices.items()):
-                for voice in voices:
-                    voice.env1.force_reset()
-                    voice.env2.force_reset()
-                    voice.env3.force_reset()
-                    voice.note = None
+            # Force reset ALL voices in the pool for immediate cutoff
+            for voice in self.voice_pool:
+                voice.env1.force_reset()
+                voice.env2.force_reset()
+                voice.env3.force_reset()
+                voice.note = None
             # Clear active voices dict for monophonic mode
             self.active_voices = {}
 
