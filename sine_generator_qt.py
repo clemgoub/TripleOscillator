@@ -1468,7 +1468,7 @@ class SineWaveGenerator(QMainWindow):
 
             # Sliders in horizontal row
             sliders_row = QHBoxLayout()
-            sliders_row.setSpacing(6)
+            sliders_row.setSpacing(12)  # Increased spacing to prevent overlap
 
             for label_text, depth_attr, mix_attr in slider_configs:
                 # Container for one target (2 sliders + label)
@@ -1477,23 +1477,25 @@ class SineWaveGenerator(QMainWindow):
 
                 # Horizontal row for depth + mix sliders
                 dual_slider_row = QHBoxLayout()
-                dual_slider_row.setSpacing(3)
+                dual_slider_row.setSpacing(5)  # Increased spacing between depth and mix
 
-                # Depth slider
+                # Depth slider (ADSR style with tick marks)
                 depth_slider = QSlider(Qt.Vertical)
                 depth_slider.setMinimum(0)
                 depth_slider.setMaximum(100)
                 depth_slider.setValue(0)
-                depth_slider.setFixedSize(18, 50)
+                depth_slider.setFixedHeight(100)  # Doubled from 50px
+                depth_slider.setTickPosition(QSlider.TicksRight)
                 depth_slider.valueChanged.connect(lambda v, attr=depth_attr: setattr(self, attr, v / 100.0))
                 dual_slider_row.addWidget(depth_slider)
 
-                # Mix slider
+                # Mix slider (ADSR style with tick marks)
                 mix_slider = QSlider(Qt.Vertical)
                 mix_slider.setMinimum(0)
                 mix_slider.setMaximum(100)
                 mix_slider.setValue(100)  # Default to 100% mix
-                mix_slider.setFixedSize(18, 50)
+                mix_slider.setFixedHeight(100)  # Doubled from 50px
+                mix_slider.setTickPosition(QSlider.TicksRight)
                 mix_slider.valueChanged.connect(lambda v, attr=mix_attr: setattr(self, attr, v / 100.0))
                 dual_slider_row.addWidget(mix_slider)
 
@@ -2185,12 +2187,12 @@ class SineWaveGenerator(QMainWindow):
                 freq1 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune1), self.octave1)
 
                 # Apply pitch modulation (vibrato) - use mean for phase increment calculation
-                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc1_pitch)
+                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc1_pitch * self.lfo_to_osc1_pitch_mix)
                 modulated_freq1 = freq1 * freq_mod_scalar
                 phase_increment1 = 2 * np.pi * modulated_freq1 / self.sample_rate
 
                 # Apply pulse width modulation - use mean for pw calculation
-                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc1_pw
+                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc1_pw * self.lfo_to_osc1_pw_mix
                 modulated_pw1 = np.clip(self.pulse_width1 + pw_mod, 0.01, 0.99)
 
                 # Generate waveform using voice's phase
@@ -2198,7 +2200,7 @@ class SineWaveGenerator(QMainWindow):
                 env1 = voice.env1.process(frames)
 
                 # Apply volume modulation (tremolo) - apply as array
-                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc1_volume)
+                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc1_volume * self.lfo_to_osc1_volume_mix)
                 modulated_gain1 = self.gain1 * np.clip(vol_mod, 0.0, 1.0)
 
                 voice_mix += modulated_gain1 * wave1 * env1
@@ -2212,12 +2214,12 @@ class SineWaveGenerator(QMainWindow):
                 freq2 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune2), self.octave2)
 
                 # Apply pitch modulation - use mean for phase increment calculation
-                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc2_pitch)
+                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc2_pitch * self.lfo_to_osc2_pitch_mix)
                 modulated_freq2 = freq2 * freq_mod_scalar
                 phase_increment2 = 2 * np.pi * modulated_freq2 / self.sample_rate
 
                 # Apply pulse width modulation - use mean for pw calculation
-                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc2_pw
+                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc2_pw * self.lfo_to_osc2_pw_mix
                 modulated_pw2 = np.clip(self.pulse_width2 + pw_mod, 0.01, 0.99)
 
                 # Generate waveform using voice's phase
@@ -2225,7 +2227,7 @@ class SineWaveGenerator(QMainWindow):
                 env2 = voice.env2.process(frames)
 
                 # Apply volume modulation - apply as array
-                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc2_volume)
+                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc2_volume * self.lfo_to_osc2_volume_mix)
                 modulated_gain2 = self.gain2 * np.clip(vol_mod, 0.0, 1.0)
 
                 voice_mix += modulated_gain2 * wave2 * env2
@@ -2239,12 +2241,12 @@ class SineWaveGenerator(QMainWindow):
                 freq3 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune3), self.octave3)
 
                 # Apply pitch modulation - use mean for phase increment calculation
-                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc3_pitch)
+                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc3_pitch * self.lfo_to_osc3_pitch_mix)
                 modulated_freq3 = freq3 * freq_mod_scalar
                 phase_increment3 = 2 * np.pi * modulated_freq3 / self.sample_rate
 
                 # Apply pulse width modulation - use mean for pw calculation
-                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc3_pw
+                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc3_pw * self.lfo_to_osc3_pw_mix
                 modulated_pw3 = np.clip(self.pulse_width3 + pw_mod, 0.01, 0.99)
 
                 # Generate waveform using voice's phase
@@ -2252,7 +2254,7 @@ class SineWaveGenerator(QMainWindow):
                 env3 = voice.env3.process(frames)
 
                 # Apply volume modulation - apply as array
-                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc3_volume)
+                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc3_volume * self.lfo_to_osc3_volume_mix)
                 modulated_gain3 = self.gain3 * np.clip(vol_mod, 0.0, 1.0)
 
                 voice_mix += modulated_gain3 * wave3 * env3
@@ -2289,7 +2291,7 @@ class SineWaveGenerator(QMainWindow):
         # Apply filter with LFO modulation to cutoff
         if self.lfo_to_filter_cutoff > 0:
             lfo_mean = np.mean(lfo_signal)
-            cutoff_mod = 2.0 ** (lfo_mean * 2.0 * self.lfo_to_filter_cutoff)  # ±2 octaves
+            cutoff_mod = 2.0 ** (lfo_mean * 2.0 * self.lfo_to_filter_cutoff * self.lfo_to_filter_cutoff_mix)  # ±2 octaves
             self.filter.cutoff = np.clip(self.filter.cutoff * cutoff_mod, 20.0, 20000.0)
 
         filtered = self.filter.process(mixed)

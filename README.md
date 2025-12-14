@@ -58,6 +58,21 @@ A [vibe-coded](https://en.wikipedia.org/wiki/Vibe_coding#:~:text=In%20September%
 - **Resonance**: 0-100% - Emphasize the cutoff frequency for character
 - **Biquad Filter Design**: Professional-quality filtering
 
+### LFO (Low-Frequency Oscillator)
+- **3 Waveforms**: Sine, Triangle, Square for different modulation shapes
+- **Sync Modes**: Free-running or tempo-synced (1/4, 1/2, 1, 2, 4 bars)
+- **Frequency Range**: 0.1-20 Hz for slow sweeps to fast tremolo
+- **10 Modulation Targets**: Comprehensive routing matrix
+  - **Pitch** (Osc 1, 2, 3): Vibrato and frequency modulation
+  - **Pulse Width** (Osc 1, 2, 3): Dynamic timbral movement
+  - **Volume** (Osc 1, 2, 3): Tremolo and amplitude modulation
+  - **Filter Cutoff**: Sweeping filter effects
+- **Dual Controls per Target**:
+  - **Depth**: Amount of modulation (0-100%)
+  - **Mix**: Dry/wet blend (0-100%) for each assignment independently
+- **Real-time Modulation**: All parameters update instantly during playback
+- **JUNO-106 Style Interface**: Vertical sliders with tick marks for precise control
+
 ### Preset Management
 - **Save Presets**: Save all synth settings to JSON files
 - **Load Presets**: Recall saved settings instantly
@@ -350,6 +365,8 @@ This project started as a simple sine wave generator and evolved into a full sub
 9. **Pulse Width Modulation**: Added PWM controls for square waves (1-99% duty cycle)
 10. **Preset Management**: Implemented forward-compatible preset save/load system
 11. **Polyphony & Unison**: Added computer keyboard input, voice modes (MONO/POLY/UNI), per-voice envelopes, and intelligent voice management
+12. **Two-Row Layout**: Redesigned UI with horizontal sections for better screen utilization and JUNO-106 style vertical sliders for ADSR
+13. **LFO Mix Controls**: Implemented dual-slider interface with depth and dry/wet controls for all 10 modulation targets
 
 ## Roadmap
 
