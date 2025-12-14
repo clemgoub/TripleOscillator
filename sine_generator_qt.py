@@ -572,18 +572,18 @@ class SineWaveGenerator(QMainWindow):
         self.mono_button.clicked.connect(lambda: self.set_voice_mode('mono'))
         self.mono_button.setStyleSheet("""
             QPushButton {
-                background-color: #4a7c29;
+                background-color: #555555;
                 color: white;
-                border: 2px solid #90ee90;
+                border: 2px solid #888888;
                 border-radius: 3px;
             }
             QPushButton:hover {
-                background-color: #5a8c39;
+                background-color: #666666;
             }
             QPushButton:checked {
-                background-color: #90ee90;
+                background-color: #ffc452;
                 color: black;
-                border: 2px solid #4a7c29;
+                border: 2px solid #b37600;
             }
         """)
         midi_layout.addWidget(self.mono_button)
@@ -605,9 +605,9 @@ class SineWaveGenerator(QMainWindow):
                 background-color: #666666;
             }
             QPushButton:checked {
-                background-color: #3b82f6;
-                color: white;
-                border: 2px solid #1e3a8a;
+                background-color: #6ff788;
+                color: black;
+                border: 2px solid #006112;
             }
         """)
         midi_layout.addWidget(self.poly_button)
@@ -629,9 +629,9 @@ class SineWaveGenerator(QMainWindow):
                 background-color: #666666;
             }
             QPushButton:checked {
-                background-color: #dc2626;
-                color: white;
-                border: 2px solid #7f1d1d;
+                background-color: #fc5b42;
+                color: black;
+                border: 2px solid #8a1300;
             }
         """)
         midi_layout.addWidget(self.unison_button)
@@ -644,16 +644,16 @@ class SineWaveGenerator(QMainWindow):
         self.power_button.setFixedSize(100, 40)
         self.power_button.setStyleSheet("""
             QPushButton {
-                background-color: #2d5016;
+                background-color: #3c3c3c;
                 color: #90ee90;
                 border: 2px solid #4a7c29;
                 border-radius: 5px;
             }
             QPushButton:hover {
-                background-color: #3a6620;
+                background-color: #666666;
             }
             QPushButton:pressed {
-                background-color: #1f3810;
+                background-color: #3c3c3c;
             }
         """)
         self.power_button.clicked.connect(self.toggle_power)
@@ -2003,7 +2003,7 @@ class SineWaveGenerator(QMainWindow):
             self.power_button.setText("ON")
             self.power_button.setStyleSheet("""
                 QPushButton {
-                    background-color: #4CAF50;
+                    background-color: #fc5b42;
                     color: white;
                     border: none;
                     border-radius: 5px;
@@ -2011,7 +2011,7 @@ class SineWaveGenerator(QMainWindow):
                     font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #45a049;
+                    background-color: #fc5b42;
                 }
             """)
         else:
@@ -2320,8 +2320,8 @@ class SineWaveGenerator(QMainWindow):
             button.setText("ON")
             button.setStyleSheet("""
                 QPushButton {
-                    background-color: #f44336;
-                    color: white;
+                    background-color: #fc5b42;
+                    color: black;
                     border: none;
                     border-radius: 16px;
                     min-width: 33px;
@@ -2330,7 +2330,7 @@ class SineWaveGenerator(QMainWindow):
                     max-height: 33px;
                 }
                 QPushButton:hover {
-                    background-color: #da190b;
+                    background-color: #fc5b42;
                 }
             """)
         else:
@@ -2362,32 +2362,32 @@ class SineWaveGenerator(QMainWindow):
             self.power_button.setText("POWER ON")
             self.power_button.setStyleSheet("""
                 QPushButton {
-                    background-color: #2d5016;
+                    background-color: #3c3c3c;
                     color: #90ee90;
                     border: 2px solid #4a7c29;
                     border-radius: 5px;
                 }
                 QPushButton:hover {
-                    background-color: #3a6620;
+                    background-color: #666666;
                 }
                 QPushButton:pressed {
-                    background-color: #1f3810;
+                    background-color: #3c3c3c;
                 }
             """)
         else:
             self.power_button.setText("POWER OFF")
             self.power_button.setStyleSheet("""
                 QPushButton {
-                    background-color: #5c1010;
+                    background-color: #3c3c3c;
                     color: #ff6b6b;
                     border: 2px solid #8b2020;
                     border-radius: 5px;
                 }
                 QPushButton:hover {
-                    background-color: #6b1515;
+                    background-color: #666666
                 }
                 QPushButton:pressed {
-                    background-color: #3d0a0a;
+                    background-color: #3c3c3c;
                 }
             """)
 
