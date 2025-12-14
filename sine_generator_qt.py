@@ -382,18 +382,25 @@ class Voice:
         """Voice is free if no note is assigned and all envelopes are idle"""
         return self.note is None and not self.is_active()
 
-    def trigger(self, note, velocity, unison_detune=0.0):
-        """Trigger this voice with a note"""
+    def trigger(self, note, velocity, unison_detune=0.0, phase_offset=0.0):
+        """Trigger this voice with a note
+
+        Args:
+            note: MIDI note number
+            velocity: Note velocity (0-127)
+            unison_detune: Detune amount in cents for unison spread
+            phase_offset: Phase offset in radians for subtle stereo width (0 to π/4)
+        """
         self.note = note
         self.velocity = velocity
         self.unison_detune = unison_detune
         self.age = 0
 
-        # Reset phases to 0 for clean unison (no phasing)
-        # All voices in unison should start perfectly in phase
-        self.phase1 = 0
-        self.phase2 = 0
-        self.phase3 = 0
+        # Apply subtle phase offset for unison width
+        # Small offsets (0 to π/4) add stereo presence without harsh phasing
+        self.phase1 = phase_offset
+        self.phase2 = phase_offset
+        self.phase3 = phase_offset
 
         # Trigger envelopes
         self.env1.trigger()
@@ -2385,11 +2392,14 @@ class SineWaveGenerator(QMainWindow):
                 # steal_voice() returned a voice we already have, try next iteration
                 continue
 
-        # Trigger voices with appropriate detune offsets
+        # Trigger voices with appropriate detune offsets and phase spread
         allocated_voices = []
         for i, voice in enumerate(available_voices[:voices_needed]):
             unison_detune = detune_pattern[i] if i < len(detune_pattern) else 0.0
-            voice.trigger(note, velocity, unison_detune)
+            # Add subtle phase offset for unison mode to create width
+            # Use small offsets (0 to π/4) to avoid harsh phasing
+            phase_offset = (i / max(voices_needed - 1, 1)) * (np.pi / 4) if voices_needed > 1 else 0.0
+            voice.trigger(note, velocity, unison_detune, phase_offset)
             allocated_voices.append(voice)
 
         # Track active voices for this note
