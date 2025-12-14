@@ -1883,6 +1883,37 @@ class SineWaveGenerator(QMainWindow):
                 "cutoff": self.filter.cutoff,
                 "resonance": self.filter.resonance
             },
+            "lfo": {
+                "waveform": self.lfo.waveform,
+                "rate_mode": self.lfo.rate_mode,
+                "rate_hz": self.lfo.rate_hz,
+                "sync_division": self.lfo.sync_division,
+                "bpm": self.lfo.bpm,
+                "depth": {
+                    "osc1_pitch": self.lfo_to_osc1_pitch,
+                    "osc2_pitch": self.lfo_to_osc2_pitch,
+                    "osc3_pitch": self.lfo_to_osc3_pitch,
+                    "osc1_pw": self.lfo_to_osc1_pw,
+                    "osc2_pw": self.lfo_to_osc2_pw,
+                    "osc3_pw": self.lfo_to_osc3_pw,
+                    "filter_cutoff": self.lfo_to_filter_cutoff,
+                    "osc1_volume": self.lfo_to_osc1_volume,
+                    "osc2_volume": self.lfo_to_osc2_volume,
+                    "osc3_volume": self.lfo_to_osc3_volume
+                },
+                "mix": {
+                    "osc1_pitch": self.lfo_to_osc1_pitch_mix,
+                    "osc2_pitch": self.lfo_to_osc2_pitch_mix,
+                    "osc3_pitch": self.lfo_to_osc3_pitch_mix,
+                    "osc1_pw": self.lfo_to_osc1_pw_mix,
+                    "osc2_pw": self.lfo_to_osc2_pw_mix,
+                    "osc3_pw": self.lfo_to_osc3_pw_mix,
+                    "filter_cutoff": self.lfo_to_filter_cutoff_mix,
+                    "osc1_volume": self.lfo_to_osc1_volume_mix,
+                    "osc2_volume": self.lfo_to_osc2_volume_mix,
+                    "osc3_volume": self.lfo_to_osc3_volume_mix
+                }
+            },
             "master": {
                 "volume": self.master_volume,
                 "power": self.power_on
@@ -1966,6 +1997,40 @@ class SineWaveGenerator(QMainWindow):
             self.master_volume = master.get("volume", 0.5)
             self.power_on = master.get("power", True)
 
+            # LFO settings
+            lfo = preset.get("lfo", {})
+            self.lfo.waveform = lfo.get("waveform", "Sine")
+            self.lfo.rate_mode = lfo.get("rate_mode", "Free")
+            self.lfo.rate_hz = lfo.get("rate_hz", 2.0)
+            self.lfo.sync_division = lfo.get("sync_division", "1/4")
+            self.lfo.bpm = lfo.get("bpm", 120.0)
+
+            # LFO depth parameters
+            lfo_depth = lfo.get("depth", {})
+            self.lfo_to_osc1_pitch = lfo_depth.get("osc1_pitch", 0.0)
+            self.lfo_to_osc2_pitch = lfo_depth.get("osc2_pitch", 0.0)
+            self.lfo_to_osc3_pitch = lfo_depth.get("osc3_pitch", 0.0)
+            self.lfo_to_osc1_pw = lfo_depth.get("osc1_pw", 0.0)
+            self.lfo_to_osc2_pw = lfo_depth.get("osc2_pw", 0.0)
+            self.lfo_to_osc3_pw = lfo_depth.get("osc3_pw", 0.0)
+            self.lfo_to_filter_cutoff = lfo_depth.get("filter_cutoff", 0.0)
+            self.lfo_to_osc1_volume = lfo_depth.get("osc1_volume", 0.0)
+            self.lfo_to_osc2_volume = lfo_depth.get("osc2_volume", 0.0)
+            self.lfo_to_osc3_volume = lfo_depth.get("osc3_volume", 0.0)
+
+            # LFO mix parameters
+            lfo_mix = lfo.get("mix", {})
+            self.lfo_to_osc1_pitch_mix = lfo_mix.get("osc1_pitch", 1.0)
+            self.lfo_to_osc2_pitch_mix = lfo_mix.get("osc2_pitch", 1.0)
+            self.lfo_to_osc3_pitch_mix = lfo_mix.get("osc3_pitch", 1.0)
+            self.lfo_to_osc1_pw_mix = lfo_mix.get("osc1_pw", 1.0)
+            self.lfo_to_osc2_pw_mix = lfo_mix.get("osc2_pw", 1.0)
+            self.lfo_to_osc3_pw_mix = lfo_mix.get("osc3_pw", 1.0)
+            self.lfo_to_filter_cutoff_mix = lfo_mix.get("filter_cutoff", 1.0)
+            self.lfo_to_osc1_volume_mix = lfo_mix.get("osc1_volume", 1.0)
+            self.lfo_to_osc2_volume_mix = lfo_mix.get("osc2_volume", 1.0)
+            self.lfo_to_osc3_volume_mix = lfo_mix.get("osc3_volume", 1.0)
+
             # Update UI to reflect loaded preset
             self.update_ui_from_preset()
 
@@ -1982,6 +2047,21 @@ class SineWaveGenerator(QMainWindow):
         self.waveform1_combo.setCurrentText(self.waveform1)
         self.waveform2_combo.setCurrentText(self.waveform2)
         self.waveform3_combo.setCurrentText(self.waveform3)
+
+        # Update frequency knobs - block signals to prevent triggering callbacks
+        self.freq1_knob.blockSignals(True)
+        self.freq2_knob.blockSignals(True)
+        self.freq3_knob.blockSignals(True)
+        # Calculate knob values based on logarithmic scale (20Hz to 5000Hz)
+        if self.freq1 > 0:
+            self.freq1_knob.setValue(int((np.log(self.freq1) - np.log(20)) / (np.log(5000) - np.log(20)) * 100))
+        if self.freq2 > 0:
+            self.freq2_knob.setValue(int((np.log(self.freq2) - np.log(20)) / (np.log(5000) - np.log(20)) * 100))
+        if self.freq3 > 0:
+            self.freq3_knob.setValue(int((np.log(self.freq3) - np.log(20)) / (np.log(5000) - np.log(20)) * 100))
+        self.freq1_knob.blockSignals(False)
+        self.freq2_knob.blockSignals(False)
+        self.freq3_knob.blockSignals(False)
 
         # Update frequency labels
         self.freq1_label.setText(f"{self.freq1:.1f} Hz")
@@ -2000,6 +2080,34 @@ class SineWaveGenerator(QMainWindow):
         self.pw1_label.setText(f"{int(self.pulse_width1 * 100)}%")
         self.pw2_label.setText(f"{int(self.pulse_width2 * 100)}%")
         self.pw3_label.setText(f"{int(self.pulse_width3 * 100)}%")
+
+        # Update mixer gain knobs
+        self.gain1_knob.setValue(int(self.gain1 * 100))
+        self.gain2_knob.setValue(int(self.gain2 * 100))
+        self.gain3_knob.setValue(int(self.gain3 * 100))
+
+        # Update ADSR sliders
+        self.attack_slider.setValue(int(self.env1.attack / 20))  # Scale 0-2000ms to 0-100
+        self.decay_slider.setValue(int(self.env1.decay / 20))    # Scale 0-2000ms to 0-100
+        self.sustain_slider.setValue(int(self.env1.sustain))     # 0-100 already
+        self.release_slider.setValue(int(self.env1.release / 50))  # Scale 0-5000ms to 0-100
+
+        # Update ADSR labels
+        self.attack_slider_value.setText(f"{int(self.env1.attack)}ms")
+        self.decay_slider_value.setText(f"{int(self.env1.decay)}ms")
+        self.sustain_slider_value.setText(f"{int(self.env1.sustain)}%")
+        self.release_slider_value.setText(f"{int(self.env1.release)}ms")
+
+        # Update master volume
+        self.master_volume_knob.setValue(int(self.master_volume * 100))
+
+        # Update LFO waveform and mode
+        self.lfo_waveform_combo.setCurrentText(self.lfo.waveform)
+        self.lfo_mode_combo.setCurrentText(self.lfo.rate_mode)
+
+        # Update LFO sync division if needed
+        if hasattr(self, 'lfo_sync_combo'):
+            self.lfo_sync_combo.setCurrentText(self.lfo.sync_division)
 
         # Update power button
         if self.power_on:
