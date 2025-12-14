@@ -2271,55 +2271,6 @@ class SineWaveGenerator(QMainWindow):
             success = self.midi_handler.start(port_name)
             if success:
                 print(f"MIDI port opened: {port_name}")
-                # Switch to MIDI mode: turn off all oscillators and release envelopes
-                if self.osc1_on:
-                    self.osc1_on = False
-                    self.osc1_button.setText("OFF")
-                    self.osc1_button.setStyleSheet("""
-                        QPushButton {
-                            background-color: #3c3c3c;
-                            color: #888888;
-                            border: none;
-                            border-radius: 17px;
-                        }
-                        QPushButton:hover {
-                            background-color: #4c4c4c;
-                        }
-                    """)
-                    self.env1.release_note()
-
-                if self.osc2_on:
-                    self.osc2_on = False
-                    self.osc2_button.setText("OFF")
-                    self.osc2_button.setStyleSheet("""
-                        QPushButton {
-                            background-color: #3c3c3c;
-                            color: #888888;
-                            border: none;
-                            border-radius: 17px;
-                        }
-                        QPushButton:hover {
-                            background-color: #4c4c4c;
-                        }
-                    """)
-                    self.env2.release_note()
-
-                if self.osc3_on:
-                    self.osc3_on = False
-                    self.osc3_button.setText("OFF")
-                    self.osc3_button.setStyleSheet("""
-                        QPushButton {
-                            background-color: #3c3c3c;
-                            color: #888888;
-                            border: none;
-                            border-radius: 17px;
-                        }
-                        QPushButton:hover {
-                            background-color: #4c4c4c;
-                        }
-                    """)
-                    self.env3.release_note()
-
                 # Set knobs to center (0 cents) and update labels
                 center_value = 50  # Middle of 0-100 range = 0 cents
                 self.freq1_knob.setValue(center_value)
