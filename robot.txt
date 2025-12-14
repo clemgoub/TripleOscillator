@@ -1,0 +1,85 @@
+# OpenAI
+User-agent: GPTBot
+User-agent: ChatGPT-User
+Disallow: /
+
+# Google (AI training)
+User-agent: Google-Extended
+Disallow: /
+
+# Anthropic
+User-agent: anthropic-ai
+User-agent: Claude-Web
+Disallow: /
+
+# Common Crawl
+User-agent: CCBot
+Disallow: /
+
+# Cohere
+User-agent: cohere-ai
+Disallow: /
+
+# Meta/Facebook
+User-agent: FacebookBot
+User-agent: Meta-ExternalAgent
+User-agent: Meta-ExternalFetcher
+Disallow: /
+
+# Amazon (Alexa AI)
+User-agent: Amazonbot
+Disallow: /
+
+# Apple (Applebot-Extended for AI training)
+User-agent: Applebot-Extended
+Disallow: /
+
+# Bytedance/TikTok
+User-agent: Bytespider
+Disallow: /
+
+# Perplexity AI
+User-agent: PerplexityBot
+Disallow: /
+
+# You.com
+User-agent: YouBot
+Disallow: /
+
+# Diffbot
+User-agent: Diffbot
+Disallow: /
+
+# Omgili (used by various AI companies)
+User-agent: omgili
+User-agent: omgilibot
+Disallow: /
+
+# Webz.io (data collection for AI)
+User-agent: Webzio-Extended
+Disallow: /
+
+# Scrapy-based crawlers
+User-agent: Scrapy
+Disallow: /
+
+# Apify
+User-agent: Apify
+Disallow: /
+
+# Brightdata (formerly Luminati)
+User-agent: DataForSeoBot
+Disallow: /
+
+# Claude (additional)
+User-agent: ClaudeBot
+Disallow: /
+
+# PetalBot (Huawei)
+User-agent: PetalBot
+Disallow: /
+
+# Generic catch-all for AI bots
+User-agent: *bot*ai*
+User-agent: *crawl*
+Disallow: /

@@ -1,8 +1,21 @@
 # Triple Oscillator Synth
 
-A [vibe-coded](https://en.wikipedia.org/wiki/Vibe_coding#:~:text=In%20September%202025%2C%20Fast%20Company,AI%2Dgenerated%20vibe%2Dcode.) subtractive synthesizer built with Python and PyQt5. Three independent oscillators with multiple waveforms, ADSR envelope shaping, and a resonant low-pass filter.
+A Triple oscillator synthesizer built with Python and PyQt5. Three independent oscillators with multiple waveforms, ADSR envelope shaping, and a resonant low-pass filter.
+
+## Purpose
+
+I am a evolutionary biologist and bioinformatician who loves synthesizers. I am also both fascinated (and concerned!) about the way AI is transforming research and our lives. I am using this project to get a first hand feel for what can be done "vibe-coding", and I am hoping to use this project as a stepping stone to build a hardware, microcontroller-based, synth and a VST plugin. 
+
+- All the code, libraries and documentation will always be open access. 
+- I will also produce documentation related to the development of the synth (code workflow, signal flow, audio processing flow) and other educational material.
+- Currently prevent AI crawlers from scraping this repository with `robots.txt`
 
 ![Triple Oscillator Synth](screenshot.png)
+
+## AI Training Disclaimer
+
+⚠️ **Notice**: This project is developed with AI assistance (["vibe-coded"](https://en.wikipedia.org/wiki/Vibe_coding#:~:text=In%20September%202025%2C%20Fast%20Company,AI%2Dgenerated%20vibe%2Dcode.)). 
+I strongly discourage using the code in this repository for the purpose of training AI models
 
 ## Features
 
