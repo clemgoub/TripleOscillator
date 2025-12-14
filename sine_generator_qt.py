@@ -693,56 +693,65 @@ class SineWaveGenerator(QMainWindow):
         midi_layout.addStretch(1)
         main_layout.addLayout(midi_layout)
 
-        # SINGLE-COLUMN VERTICAL LAYOUT
-        # Everything stacks vertically for clean, no-overlap layout
+        # TWO-ROW HORIZONTAL LAYOUT
+        # Row 1: Oscillators | Mixer | Filter
+        # Row 2: ADSR | LFO
 
-        # OSCILLATORS SECTION
+        # ROW 1: Oscillators, Mixer, Filter
+        row1_layout = QHBoxLayout()
+        row1_layout.setSpacing(10)
+
+        # OSCILLATORS (3 vertical columns)
         oscillators_group = self.create_group_box("OSCILLATORS")
-        oscillators_layout = QVBoxLayout(oscillators_group)
-
-        # Three oscillators in a horizontal row
-        oscillators_row = QHBoxLayout()
-        oscillators_row.setSpacing(10)
+        oscillators_layout = QHBoxLayout(oscillators_group)
+        oscillators_layout.setSpacing(10)
 
         osc1_widget = self.create_oscillator_column("Oscillator 1", 1)
-        oscillators_row.addWidget(osc1_widget, 1)
+        oscillators_layout.addWidget(osc1_widget)
 
         osc2_widget = self.create_oscillator_column("Oscillator 2", 2)
-        oscillators_row.addWidget(osc2_widget, 1)
+        oscillators_layout.addWidget(osc2_widget)
 
         osc3_widget = self.create_oscillator_column("Oscillator 3", 3)
-        oscillators_row.addWidget(osc3_widget, 1)
+        oscillators_layout.addWidget(osc3_widget)
 
-        oscillators_layout.addLayout(oscillators_row)
-        main_layout.addWidget(oscillators_group)
+        row1_layout.addWidget(oscillators_group, 3)  # 3 parts for oscillators
 
-        # MIXER SECTION
+        # MIXER
         mixer_group = self.create_group_box("MIXER")
         mixer_layout = QVBoxLayout(mixer_group)
         mixer_widget = self.create_mixer_column()
         mixer_layout.addWidget(mixer_widget)
-        main_layout.addWidget(mixer_group)
+        row1_layout.addWidget(mixer_group, 1)  # 1 part for mixer
 
-        # ADSR SECTION
-        adsr_group = self.create_group_box("ADSR ENVELOPE")
-        adsr_layout = QVBoxLayout(adsr_group)
-        adsr_widget = self.create_adsr_section()
-        adsr_layout.addWidget(adsr_widget)
-        main_layout.addWidget(adsr_group)
-
-        # FILTER SECTION
+        # FILTER
         filter_group = self.create_group_box("FILTER")
         filter_layout = QVBoxLayout(filter_group)
         filter_widget = self.create_filter_section()
         filter_layout.addWidget(filter_widget)
-        main_layout.addWidget(filter_group)
+        row1_layout.addWidget(filter_group, 1)  # 1 part for filter
 
-        # LFO SECTION
+        main_layout.addLayout(row1_layout)
+
+        # ROW 2: ADSR and LFO
+        row2_layout = QHBoxLayout()
+        row2_layout.setSpacing(10)
+
+        # ADSR (sliders like JUNO-106)
+        adsr_group = self.create_group_box("ADSR ENVELOPE")
+        adsr_layout = QVBoxLayout(adsr_group)
+        adsr_widget = self.create_adsr_section_sliders()
+        adsr_layout.addWidget(adsr_widget)
+        row2_layout.addWidget(adsr_group, 1)
+
+        # LFO
         lfo_group = self.create_group_box("LFO & MODULATION")
         lfo_layout = QVBoxLayout(lfo_group)
         lfo_widget = self.create_lfo_section()
         lfo_layout.addWidget(lfo_widget)
-        main_layout.addWidget(lfo_group)
+        row2_layout.addWidget(lfo_group, 1)
+
+        main_layout.addLayout(row2_layout)
 
         # Initialize ADSR values (trigger callbacks manually since setValue doesn't trigger them)
         self.update_adsr('attack', 10)      # 10ms
@@ -1226,6 +1235,109 @@ class SineWaveGenerator(QMainWindow):
 
         return section
 
+    def create_adsr_section_sliders(self):
+        """Create ADSR envelope section with vertical sliders (JUNO-106 style)"""
+        section = QWidget()
+        layout = QHBoxLayout(section)
+        layout.setSpacing(20)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # Attack slider
+        attack_container = QWidget()
+        attack_layout = QVBoxLayout(attack_container)
+        attack_layout.setSpacing(5)
+
+        attack_label = QLabel("ATTACK")
+        attack_label.setAlignment(Qt.AlignCenter)
+        attack_layout.addWidget(attack_label)
+
+        self.attack_slider = QSlider(Qt.Vertical)
+        self.attack_slider.setRange(0, 100)
+        self.attack_slider.setValue(0)
+        self.attack_slider.setTickPosition(QSlider.TicksRight)
+        self.attack_slider.setFixedHeight(150)
+        self.attack_slider.valueChanged.connect(lambda v: self.update_adsr('attack', v * 20))
+        attack_layout.addWidget(self.attack_slider, alignment=Qt.AlignCenter)
+
+        self.attack_slider_value = QLabel("0ms")
+        self.attack_slider_value.setAlignment(Qt.AlignCenter)
+        attack_layout.addWidget(self.attack_slider_value)
+
+        layout.addWidget(attack_container)
+
+        # Decay slider
+        decay_container = QWidget()
+        decay_layout = QVBoxLayout(decay_container)
+        decay_layout.setSpacing(5)
+
+        decay_label = QLabel("DECAY")
+        decay_label.setAlignment(Qt.AlignCenter)
+        decay_layout.addWidget(decay_label)
+
+        self.decay_slider = QSlider(Qt.Vertical)
+        self.decay_slider.setRange(0, 100)
+        self.decay_slider.setValue(5)
+        self.decay_slider.setTickPosition(QSlider.TicksRight)
+        self.decay_slider.setFixedHeight(150)
+        self.decay_slider.valueChanged.connect(lambda v: self.update_adsr('decay', v * 20))
+        decay_layout.addWidget(self.decay_slider, alignment=Qt.AlignCenter)
+
+        self.decay_slider_value = QLabel("100ms")
+        self.decay_slider_value.setAlignment(Qt.AlignCenter)
+        decay_layout.addWidget(self.decay_slider_value)
+
+        layout.addWidget(decay_container)
+
+        # Sustain slider
+        sustain_container = QWidget()
+        sustain_layout = QVBoxLayout(sustain_container)
+        sustain_layout.setSpacing(5)
+
+        sustain_label = QLabel("SUSTAIN")
+        sustain_label.setAlignment(Qt.AlignCenter)
+        sustain_layout.addWidget(sustain_label)
+
+        self.sustain_slider = QSlider(Qt.Vertical)
+        self.sustain_slider.setRange(0, 100)
+        self.sustain_slider.setValue(70)
+        self.sustain_slider.setTickPosition(QSlider.TicksRight)
+        self.sustain_slider.setFixedHeight(150)
+        self.sustain_slider.valueChanged.connect(lambda v: self.update_adsr('sustain', v))
+        sustain_layout.addWidget(self.sustain_slider, alignment=Qt.AlignCenter)
+
+        self.sustain_slider_value = QLabel("70%")
+        self.sustain_slider_value.setAlignment(Qt.AlignCenter)
+        sustain_layout.addWidget(self.sustain_slider_value)
+
+        layout.addWidget(sustain_container)
+
+        # Release slider
+        release_container = QWidget()
+        release_layout = QVBoxLayout(release_container)
+        release_layout.setSpacing(5)
+
+        release_label = QLabel("RELEASE")
+        release_label.setAlignment(Qt.AlignCenter)
+        release_layout.addWidget(release_label)
+
+        self.release_slider = QSlider(Qt.Vertical)
+        self.release_slider.setRange(0, 100)
+        self.release_slider.setValue(6)
+        self.release_slider.setTickPosition(QSlider.TicksRight)
+        self.release_slider.setFixedHeight(150)
+        self.release_slider.valueChanged.connect(lambda v: self.update_adsr('release', v * 50))
+        release_layout.addWidget(self.release_slider, alignment=Qt.AlignCenter)
+
+        self.release_slider_value = QLabel("300ms")
+        self.release_slider_value.setAlignment(Qt.AlignCenter)
+        release_layout.addWidget(self.release_slider_value)
+
+        layout.addWidget(release_container)
+
+        layout.addStretch(1)
+
+        return section
+
     def create_filter_section(self):
         """Create filter section"""
         section = QWidget()
@@ -1642,6 +1754,8 @@ class SineWaveGenerator(QMainWindow):
                 voice.env1.attack = value / 1000.0
                 voice.env2.attack = value / 1000.0
                 voice.env3.attack = value / 1000.0
+            # Update UI label
+            self.attack_slider_value.setText(f"{int(value)}ms")
         elif param == 'decay':
             self.env1.decay = value / 1000.0
             self.env2.decay = value / 1000.0
@@ -1651,6 +1765,8 @@ class SineWaveGenerator(QMainWindow):
                 voice.env1.decay = value / 1000.0
                 voice.env2.decay = value / 1000.0
                 voice.env3.decay = value / 1000.0
+            # Update UI label
+            self.decay_slider_value.setText(f"{int(value)}ms")
         elif param == 'sustain':
             self.env1.sustain = value / 100.0
             self.env2.sustain = value / 100.0
@@ -1660,6 +1776,8 @@ class SineWaveGenerator(QMainWindow):
                 voice.env1.sustain = value / 100.0
                 voice.env2.sustain = value / 100.0
                 voice.env3.sustain = value / 100.0
+            # Update UI label
+            self.sustain_slider_value.setText(f"{int(value)}%")
         elif param == 'release':
             self.env1.release = value / 1000.0
             self.env2.release = value / 1000.0
@@ -1669,6 +1787,8 @@ class SineWaveGenerator(QMainWindow):
                 voice.env1.release = value / 1000.0
                 voice.env2.release = value / 1000.0
                 voice.env3.release = value / 1000.0
+            # Update UI label
+            self.release_slider_value.setText(f"{int(value)}ms")
 
     def update_filter(self, param, value):
         """Update filter parameters"""
