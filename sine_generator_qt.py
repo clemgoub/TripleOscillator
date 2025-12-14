@@ -21,7 +21,7 @@ import os
 from scipy import signal as scipy_signal
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton, QDial, QComboBox,
-                             QFileDialog, QMessageBox, QSlider, QGridLayout)
+                             QFileDialog, QMessageBox, QSlider, QGridLayout, QGroupBox)
 from PyQt5.QtCore import Qt, QObject, pyqtSignal
 from PyQt5.QtGui import QFont
 
@@ -517,7 +517,8 @@ class SineWaveGenerator(QMainWindow):
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle("Triple Oscillator Synth")
-        self.setFixedSize(1350, 850)
+        self.setMinimumSize(1000, 900)
+        self.resize(1000, 900)
 
         # Create central widget and main layout
         central_widget = QWidget()
@@ -692,45 +693,56 @@ class SineWaveGenerator(QMainWindow):
         midi_layout.addStretch(1)
         main_layout.addLayout(midi_layout)
 
-        # TOP SECTION: Four column layout (Oscillators + Mixer)
-        columns_layout = QHBoxLayout()
-        columns_layout.setSpacing(20)
+        # SINGLE-COLUMN VERTICAL LAYOUT
+        # Everything stacks vertically for clean, no-overlap layout
 
-        # OSCILLATOR 1 COLUMN
+        # OSCILLATORS SECTION
+        oscillators_group = self.create_group_box("OSCILLATORS")
+        oscillators_layout = QVBoxLayout(oscillators_group)
+
+        # Three oscillators in a horizontal row
+        oscillators_row = QHBoxLayout()
+        oscillators_row.setSpacing(10)
+
         osc1_widget = self.create_oscillator_column("Oscillator 1", 1)
-        columns_layout.addWidget(osc1_widget, 1)
+        oscillators_row.addWidget(osc1_widget, 1)
 
-        # OSCILLATOR 2 COLUMN
         osc2_widget = self.create_oscillator_column("Oscillator 2", 2)
-        columns_layout.addWidget(osc2_widget, 1)
+        oscillators_row.addWidget(osc2_widget, 1)
 
-        # OSCILLATOR 3 COLUMN
         osc3_widget = self.create_oscillator_column("Oscillator 3", 3)
-        columns_layout.addWidget(osc3_widget, 1)
+        oscillators_row.addWidget(osc3_widget, 1)
 
-        # MIXER COLUMN
+        oscillators_layout.addLayout(oscillators_row)
+        main_layout.addWidget(oscillators_group)
+
+        # MIXER SECTION
+        mixer_group = self.create_group_box("MIXER")
+        mixer_layout = QVBoxLayout(mixer_group)
         mixer_widget = self.create_mixer_column()
-        columns_layout.addWidget(mixer_widget, 1)
+        mixer_layout.addWidget(mixer_widget)
+        main_layout.addWidget(mixer_group)
 
-        main_layout.addLayout(columns_layout)
-
-        # BOTTOM SECTION: ADSR and Filter
-        bottom_layout = QHBoxLayout()
-        bottom_layout.setSpacing(20)
-
-        # ADSR Section
+        # ADSR SECTION
+        adsr_group = self.create_group_box("ADSR ENVELOPE")
+        adsr_layout = QVBoxLayout(adsr_group)
         adsr_widget = self.create_adsr_section()
-        bottom_layout.addWidget(adsr_widget, 2)
+        adsr_layout.addWidget(adsr_widget)
+        main_layout.addWidget(adsr_group)
 
-        # Filter Section
+        # FILTER SECTION
+        filter_group = self.create_group_box("FILTER")
+        filter_layout = QVBoxLayout(filter_group)
         filter_widget = self.create_filter_section()
-        bottom_layout.addWidget(filter_widget, 1)
+        filter_layout.addWidget(filter_widget)
+        main_layout.addWidget(filter_group)
 
-        main_layout.addLayout(bottom_layout)
-
-        # LFO Section (full width below filter)
+        # LFO SECTION
+        lfo_group = self.create_group_box("LFO & MODULATION")
+        lfo_layout = QVBoxLayout(lfo_group)
         lfo_widget = self.create_lfo_section()
-        main_layout.addWidget(lfo_widget)
+        lfo_layout.addWidget(lfo_widget)
+        main_layout.addWidget(lfo_group)
 
         # Initialize ADSR values (trigger callbacks manually since setValue doesn't trigger them)
         self.update_adsr('attack', 10)      # 10ms
@@ -773,6 +785,27 @@ class SineWaveGenerator(QMainWindow):
                 selection-background-color: #555555;
             }
         """)
+
+    def create_group_box(self, title):
+        """Create a styled QGroupBox"""
+        group = QGroupBox(title)
+        group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #555555;
+                border-radius: 5px;
+                margin-top: 10px;
+                font-weight: bold;
+                font-size: 12px;
+                padding-top: 15px;
+                color: #ffffff;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        return group
 
     def create_oscillator_column(self, title, osc_num):
         """Create an oscillator column with waveform selector and frequency knob"""
@@ -848,13 +881,13 @@ class SineWaveGenerator(QMainWindow):
         button_layout.addStretch(1)
         layout.addLayout(button_layout)
 
-        # Frequency knob (Large: 100x100, use 0-100 range for clean appearance)
+        # Frequency knob (Large: 80x80, use 0-100 range for clean appearance)
         freq_knob = QDial()
         freq_knob.setMinimum(0)
         freq_knob.setMaximum(100)
         freq_knob.setNotchesVisible(True)
         freq_knob.setWrapping(False)
-        freq_knob.setFixedSize(100, 100)
+        freq_knob.setFixedSize(80, 80)
         # Disable native styling to get clean knob appearance
         freq_knob.setAttribute(Qt.WA_MacShowFocusRect, False)
         freq_knob.setStyleSheet("""
@@ -970,7 +1003,7 @@ class SineWaveGenerator(QMainWindow):
 
         layout.addStretch(1)
 
-        # Pulse Width knob (Small: 50x50, only affects Square wave)
+        # Pulse Width knob (Small: 45x45, only affects Square wave)
         pw_label = QLabel("Pulse Width")
         pw_label.setAlignment(Qt.AlignCenter)
         pw_label.setFont(QFont("Arial", 9, QFont.Bold))
@@ -982,7 +1015,7 @@ class SineWaveGenerator(QMainWindow):
         pw_knob.setValue(50)  # 50% default (square wave)
         pw_knob.setNotchesVisible(True)
         pw_knob.setWrapping(False)
-        pw_knob.setFixedSize(50, 50)
+        pw_knob.setFixedSize(45, 45)
         pw_knob.setAttribute(Qt.WA_MacShowFocusRect, False)
         pw_knob.setStyleSheet("""
             QDial {
@@ -1034,12 +1067,6 @@ class SineWaveGenerator(QMainWindow):
         layout.setSpacing(8)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        # Title
-        title_label = QLabel("Mixer")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setFont(QFont("Arial", 12, QFont.Bold))
-        layout.addWidget(title_label)
-
         layout.addStretch(1)
 
         # Gain 1 knob (Small: 50x50)
@@ -1053,7 +1080,7 @@ class SineWaveGenerator(QMainWindow):
         self.gain1_knob.setMaximum(100)
         self.gain1_knob.setNotchesVisible(True)
         self.gain1_knob.setWrapping(False)
-        self.gain1_knob.setFixedSize(50, 50)
+        self.gain1_knob.setFixedSize(45, 45)
         self.gain1_knob.setStyleSheet("""
             QDial {
                 background: transparent;
@@ -1081,7 +1108,7 @@ class SineWaveGenerator(QMainWindow):
         self.gain2_knob.setMaximum(100)
         self.gain2_knob.setNotchesVisible(True)
         self.gain2_knob.setWrapping(False)
-        self.gain2_knob.setFixedSize(50, 50)
+        self.gain2_knob.setFixedSize(45, 45)
         self.gain2_knob.setStyleSheet("""
             QDial {
                 background: transparent;
@@ -1109,7 +1136,7 @@ class SineWaveGenerator(QMainWindow):
         self.gain3_knob.setMaximum(100)
         self.gain3_knob.setNotchesVisible(True)
         self.gain3_knob.setWrapping(False)
-        self.gain3_knob.setFixedSize(50, 50)
+        self.gain3_knob.setFixedSize(45, 45)
         self.gain3_knob.setStyleSheet("""
             QDial {
                 background: transparent;
@@ -1137,7 +1164,7 @@ class SineWaveGenerator(QMainWindow):
         self.master_volume_knob.setMaximum(100)
         self.master_volume_knob.setNotchesVisible(True)
         self.master_volume_knob.setWrapping(False)
-        self.master_volume_knob.setFixedSize(70, 70)
+        self.master_volume_knob.setFixedSize(60, 60)
         self.master_volume_knob.setStyleSheet("""
             QDial {
                 background: transparent;
@@ -1161,13 +1188,7 @@ class SineWaveGenerator(QMainWindow):
         section = QWidget()
         layout = QVBoxLayout(section)
         layout.setSpacing(5)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        # Title
-        title_label = QLabel("ADSR Envelope")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setFont(QFont("Arial", 14, QFont.Bold))
-        layout.addWidget(title_label)
+        layout.setContentsMargins(5, 5, 5, 5)
 
         # Knobs layout
         knobs_layout = QHBoxLayout()
@@ -1175,28 +1196,28 @@ class SineWaveGenerator(QMainWindow):
 
         # Attack (use 0-100 range internally, scale to 0-2000 in callback)
         attack_container = self.create_knob_with_label("Attack", 0, 100, 0,
-                                                        lambda v: self.update_adsr('attack', v * 20))
+                                                        lambda v: self.update_adsr('attack', v * 20), size=60)
         knobs_layout.addWidget(attack_container)
         self.attack_knob = attack_container.findChild(QDial)
         self.attack_label_value = attack_container.findChild(QLabel, "value_label")
 
         # Decay (use 0-100 range internally, scale to 0-2000 in callback)
         decay_container = self.create_knob_with_label("Decay", 0, 100, 5,
-                                                       lambda v: self.update_adsr('decay', v * 20))
+                                                       lambda v: self.update_adsr('decay', v * 20), size=60)
         knobs_layout.addWidget(decay_container)
         self.decay_knob = decay_container.findChild(QDial)
         self.decay_label_value = decay_container.findChild(QLabel, "value_label")
 
         # Sustain
         sustain_container = self.create_knob_with_label("Sustain", 0, 100, 70,
-                                                         lambda v: self.update_adsr('sustain', v))
+                                                         lambda v: self.update_adsr('sustain', v), size=60)
         knobs_layout.addWidget(sustain_container)
         self.sustain_knob = sustain_container.findChild(QDial)
         self.sustain_label_value = sustain_container.findChild(QLabel, "value_label")
 
         # Release (use 0-100 range internally, scale to 0-5000 in callback)
         release_container = self.create_knob_with_label("Release", 0, 100, 6,
-                                                         lambda v: self.update_adsr('release', v * 50))
+                                                         lambda v: self.update_adsr('release', v * 50), size=60)
         knobs_layout.addWidget(release_container)
         self.release_knob = release_container.findChild(QDial)
         self.release_label_value = release_container.findChild(QLabel, "value_label")
@@ -1210,28 +1231,22 @@ class SineWaveGenerator(QMainWindow):
         section = QWidget()
         layout = QVBoxLayout(section)
         layout.setSpacing(5)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        # Title
-        title_label = QLabel("Low-Pass Filter")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setFont(QFont("Arial", 14, QFont.Bold))
-        layout.addWidget(title_label)
+        layout.setContentsMargins(5, 5, 5, 5)
 
         # Knobs layout
         knobs_layout = QHBoxLayout()
         knobs_layout.setSpacing(15)
 
-        # Cutoff (Large: 100x100, use 0-100 range internally, scale to 20-5000 logarithmically)
+        # Cutoff (Large: 80x80, use 0-100 range internally, scale to 20-5000 logarithmically)
         cutoff_container = self.create_knob_with_label("Cutoff", 0, 100, 100,
-                                                        lambda v: self.update_filter('cutoff', int(20 * (250 ** (v/100)))), size=100)
+                                                        lambda v: self.update_filter('cutoff', int(20 * (250 ** (v/100)))), size=80)
         knobs_layout.addWidget(cutoff_container)
         self.cutoff_knob = cutoff_container.findChild(QDial)
         self.cutoff_label_value = cutoff_container.findChild(QLabel, "value_label")
 
-        # Resonance (Small: 50x50)
+        # Resonance (Small: 45x45)
         resonance_container = self.create_knob_with_label("Resonance", 0, 100, 0,
-                                                           lambda v: self.update_filter('resonance', v), size=50)
+                                                           lambda v: self.update_filter('resonance', v), size=45)
         knobs_layout.addWidget(resonance_container)
         self.resonance_knob = resonance_container.findChild(QDial)
         self.resonance_label_value = resonance_container.findChild(QLabel, "value_label")
@@ -1245,13 +1260,7 @@ class SineWaveGenerator(QMainWindow):
         section = QWidget()
         main_layout = QVBoxLayout(section)
         main_layout.setSpacing(5)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-
-        # Title
-        title_label = QLabel("LFO & Modulation Matrix")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setFont(QFont("Arial", 14, QFont.Bold))
-        main_layout.addWidget(title_label)
+        main_layout.setContentsMargins(5, 5, 5, 5)
 
         # Top row: LFO controls
         lfo_controls_layout = QHBoxLayout()
@@ -1285,7 +1294,7 @@ class SineWaveGenerator(QMainWindow):
 
         # Rate knob (Free mode: 0.1-20 Hz)
         self.lfo_rate_container = self.create_knob_with_label("Rate", 1, 200, 20,
-                                                                lambda v: self.update_lfo_rate(v / 10.0), size=70)
+                                                                lambda v: self.update_lfo_rate(v / 10.0), size=60)
         lfo_controls_layout.addWidget(self.lfo_rate_container)
 
         # Sync division selector (only visible in Sync mode)
@@ -1305,63 +1314,94 @@ class SineWaveGenerator(QMainWindow):
 
         # BPM knob (only visible in Sync mode)
         self.bpm_container = self.create_knob_with_label("BPM", 40, 240, 120,
-                                                          lambda v: setattr(self.lfo, 'bpm', float(v)), size=70)
+                                                          lambda v: setattr(self.lfo, 'bpm', float(v)), size=60)
         self.bpm_container.setVisible(False)  # Hidden by default
         lfo_controls_layout.addWidget(self.bpm_container)
 
         lfo_controls_layout.addStretch()
         main_layout.addLayout(lfo_controls_layout)
 
-        # Bottom: Modulation Matrix
-        matrix_label = QLabel("Modulation Depth (0-100%)")
+        # Bottom: Modulation Matrix - Reorganized into 4 groups
+        matrix_label = QLabel("Modulation Depth")
         matrix_label.setAlignment(Qt.AlignCenter)
-        matrix_label.setFont(QFont("Arial", 11))
+        matrix_label.setFont(QFont("Arial", 10, QFont.Bold))
         main_layout.addWidget(matrix_label)
 
-        # Create grid for modulation matrix
-        matrix_layout = QGridLayout()
-        matrix_layout.setSpacing(10)
+        # Create horizontal layout for grouped sliders
+        lfo_matrix_layout = QHBoxLayout()
+        lfo_matrix_layout.setSpacing(20)
 
-        # Headers
-        matrix_layout.addWidget(QLabel(""), 0, 0)
-        matrix_layout.addWidget(QLabel("Osc1 Pitch"), 0, 1, Qt.AlignCenter)
-        matrix_layout.addWidget(QLabel("Osc2 Pitch"), 0, 2, Qt.AlignCenter)
-        matrix_layout.addWidget(QLabel("Osc3 Pitch"), 0, 3, Qt.AlignCenter)
-        matrix_layout.addWidget(QLabel("Osc1 PW"), 0, 4, Qt.AlignCenter)
-        matrix_layout.addWidget(QLabel("Osc2 PW"), 0, 5, Qt.AlignCenter)
-        matrix_layout.addWidget(QLabel("Osc3 PW"), 0, 6, Qt.AlignCenter)
-        matrix_layout.addWidget(QLabel("Filter"), 0, 7, Qt.AlignCenter)
-        matrix_layout.addWidget(QLabel("Osc1 Vol"), 0, 8, Qt.AlignCenter)
-        matrix_layout.addWidget(QLabel("Osc2 Vol"), 0, 9, Qt.AlignCenter)
-        matrix_layout.addWidget(QLabel("Osc3 Vol"), 0, 10, Qt.AlignCenter)
+        # Helper function to create a slider group
+        def create_slider_group(group_title, slider_configs):
+            group_layout = QVBoxLayout()
+            group_layout.setSpacing(5)
 
-        # LFO row label
-        matrix_layout.addWidget(QLabel("LFO"), 1, 0)
+            # Group title
+            title = QLabel(group_title)
+            title.setAlignment(Qt.AlignCenter)
+            title.setFont(QFont("Arial", 9, QFont.Bold))
+            group_layout.addWidget(title)
 
-        # Create sliders for each modulation destination
-        mod_destinations = [
-            ('lfo_to_osc1_pitch', 1, 1),
-            ('lfo_to_osc2_pitch', 1, 2),
-            ('lfo_to_osc3_pitch', 1, 3),
-            ('lfo_to_osc1_pw', 1, 4),
-            ('lfo_to_osc2_pw', 1, 5),
-            ('lfo_to_osc3_pw', 1, 6),
-            ('lfo_to_filter_cutoff', 1, 7),
-            ('lfo_to_osc1_volume', 1, 8),
-            ('lfo_to_osc2_volume', 1, 9),
-            ('lfo_to_osc3_volume', 1, 10)
-        ]
+            # Sliders in horizontal row
+            sliders_row = QHBoxLayout()
+            sliders_row.setSpacing(8)
 
-        for attr_name, row, col in mod_destinations:
-            slider = QSlider(Qt.Vertical)
-            slider.setMinimum(0)
-            slider.setMaximum(100)
-            slider.setValue(0)
-            slider.setFixedHeight(60)
-            slider.valueChanged.connect(lambda v, attr=attr_name: setattr(self, attr, v / 100.0))
-            matrix_layout.addWidget(slider, row, col, Qt.AlignCenter)
+            for label_text, attr_name in slider_configs:
+                slider_container = QVBoxLayout()
+                slider_container.setSpacing(2)
 
-        main_layout.addLayout(matrix_layout)
+                # Slider
+                slider = QSlider(Qt.Vertical)
+                slider.setMinimum(0)
+                slider.setMaximum(100)
+                slider.setValue(0)
+                slider.setFixedHeight(60)
+                slider.valueChanged.connect(lambda v, attr=attr_name: setattr(self, attr, v / 100.0))
+
+                # Label below slider
+                label = QLabel(label_text)
+                label.setAlignment(Qt.AlignCenter)
+                label.setFont(QFont("Arial", 8))
+
+                slider_container.addWidget(slider)
+                slider_container.addWidget(label)
+                sliders_row.addLayout(slider_container)
+
+            group_layout.addLayout(sliders_row)
+            return group_layout
+
+        # Group 1: PITCH (3 sliders for Osc1/2/3 pitch)
+        pitch_group = create_slider_group("PITCH", [
+            ("O1", "lfo_to_osc1_pitch"),
+            ("O2", "lfo_to_osc2_pitch"),
+            ("O3", "lfo_to_osc3_pitch")
+        ])
+        lfo_matrix_layout.addLayout(pitch_group)
+
+        # Group 2: PULSE WIDTH (3 sliders)
+        pw_group = create_slider_group("PULSE WIDTH", [
+            ("O1", "lfo_to_osc1_pw"),
+            ("O2", "lfo_to_osc2_pw"),
+            ("O3", "lfo_to_osc3_pw")
+        ])
+        lfo_matrix_layout.addLayout(pw_group)
+
+        # Group 3: VOLUME (3 sliders)
+        vol_group = create_slider_group("VOLUME", [
+            ("O1", "lfo_to_osc1_volume"),
+            ("O2", "lfo_to_osc2_volume"),
+            ("O3", "lfo_to_osc3_volume")
+        ])
+        lfo_matrix_layout.addLayout(vol_group)
+
+        # Group 4: FILTER (1 slider)
+        filter_group = create_slider_group("FILTER", [
+            ("Cutoff", "lfo_to_filter_cutoff")
+        ])
+        lfo_matrix_layout.addLayout(filter_group)
+
+        lfo_matrix_layout.addStretch()  # Push everything left
+        main_layout.addLayout(lfo_matrix_layout)
 
         return section
 
