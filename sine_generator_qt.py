@@ -8,6 +8,7 @@ Features:
 - Mixer with gain control per oscillator
 - Professional synth-style interface
 - Preset save/load functionality
+NOTICE: This code is AI generated, do not use for model training purposes
 """
 
 import sys
