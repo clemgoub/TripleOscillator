@@ -485,6 +485,18 @@ class SineWaveGenerator(QMainWindow):
         self.lfo_to_osc2_volume = 0.0
         self.lfo_to_osc3_volume = 0.0
 
+        # Modulation matrix mix controls (dry/wet 0-1 for each destination)
+        self.lfo_to_osc1_pitch_mix = 1.0
+        self.lfo_to_osc2_pitch_mix = 1.0
+        self.lfo_to_osc3_pitch_mix = 1.0
+        self.lfo_to_osc1_pw_mix = 1.0
+        self.lfo_to_osc2_pw_mix = 1.0
+        self.lfo_to_osc3_pw_mix = 1.0
+        self.lfo_to_filter_cutoff_mix = 1.0
+        self.lfo_to_osc1_volume_mix = 1.0
+        self.lfo_to_osc2_volume_mix = 1.0
+        self.lfo_to_osc3_volume_mix = 1.0
+
         # MIDI
         self.midi_handler = MIDIHandler()
         self.midi_handler.note_on.connect(self.handle_midi_note_on)
@@ -1368,7 +1380,7 @@ class SineWaveGenerator(QMainWindow):
         return section
 
     def create_lfo_section(self):
-        """Create LFO section with waveform, rate, and modulation matrix"""
+        """Create LFO section with waveform, rate, and modulation matrix with depth + mix controls"""
         section = QWidget()
         main_layout = QVBoxLayout(section)
         main_layout.setSpacing(5)
@@ -1381,7 +1393,7 @@ class SineWaveGenerator(QMainWindow):
         # Waveform selector
         waveform_container = QWidget()
         waveform_layout = QVBoxLayout(waveform_container)
-        waveform_label = QLabel("Waveform")
+        waveform_label = QLabel("Shape")
         waveform_label.setAlignment(Qt.AlignCenter)
         waveform_layout.addWidget(waveform_label)
         self.lfo_waveform_combo = QComboBox()
@@ -1391,10 +1403,10 @@ class SineWaveGenerator(QMainWindow):
         waveform_layout.addWidget(self.lfo_waveform_combo)
         lfo_controls_layout.addWidget(waveform_container)
 
-        # Rate Mode selector
+        # Rate Mode selector (Sync)
         mode_container = QWidget()
         mode_layout = QVBoxLayout(mode_container)
-        mode_label = QLabel("Rate Mode")
+        mode_label = QLabel("Sync")
         mode_label.setAlignment(Qt.AlignCenter)
         mode_layout.addWidget(mode_label)
         self.lfo_mode_combo = QComboBox()
@@ -1404,8 +1416,8 @@ class SineWaveGenerator(QMainWindow):
         mode_layout.addWidget(self.lfo_mode_combo)
         lfo_controls_layout.addWidget(mode_container)
 
-        # Rate knob (Free mode: 0.1-20 Hz)
-        self.lfo_rate_container = self.create_knob_with_label("Rate", 1, 200, 20,
+        # Rate knob (Free mode: 0.1-20 Hz) - labeled as Freq
+        self.lfo_rate_container = self.create_knob_with_label("Freq", 1, 200, 20,
                                                                 lambda v: self.update_lfo_rate(v / 10.0), size=60)
         lfo_controls_layout.addWidget(self.lfo_rate_container)
 
@@ -1433,18 +1445,18 @@ class SineWaveGenerator(QMainWindow):
         lfo_controls_layout.addStretch()
         main_layout.addLayout(lfo_controls_layout)
 
-        # Bottom: Modulation Matrix - Reorganized into 4 groups
-        matrix_label = QLabel("Modulation Depth")
+        # Bottom: Modulation Matrix with Depth + Mix controls
+        matrix_label = QLabel("Modulation Assignments (Depth / Mix)")
         matrix_label.setAlignment(Qt.AlignCenter)
         matrix_label.setFont(QFont("Arial", 10, QFont.Bold))
         main_layout.addWidget(matrix_label)
 
         # Create horizontal layout for grouped sliders
         lfo_matrix_layout = QHBoxLayout()
-        lfo_matrix_layout.setSpacing(20)
+        lfo_matrix_layout.setSpacing(15)
 
-        # Helper function to create a slider group
-        def create_slider_group(group_title, slider_configs):
+        # Helper function to create a dual-slider group (depth + mix for each target)
+        def create_dual_slider_group(group_title, slider_configs):
             group_layout = QVBoxLayout()
             group_layout.setSpacing(5)
 
@@ -1456,59 +1468,75 @@ class SineWaveGenerator(QMainWindow):
 
             # Sliders in horizontal row
             sliders_row = QHBoxLayout()
-            sliders_row.setSpacing(8)
+            sliders_row.setSpacing(6)
 
-            for label_text, attr_name in slider_configs:
-                slider_container = QVBoxLayout()
-                slider_container.setSpacing(2)
+            for label_text, depth_attr, mix_attr in slider_configs:
+                # Container for one target (2 sliders + label)
+                target_container = QVBoxLayout()
+                target_container.setSpacing(2)
 
-                # Slider
-                slider = QSlider(Qt.Vertical)
-                slider.setMinimum(0)
-                slider.setMaximum(100)
-                slider.setValue(0)
-                slider.setFixedHeight(60)
-                slider.valueChanged.connect(lambda v, attr=attr_name: setattr(self, attr, v / 100.0))
+                # Horizontal row for depth + mix sliders
+                dual_slider_row = QHBoxLayout()
+                dual_slider_row.setSpacing(3)
 
-                # Label below slider
+                # Depth slider
+                depth_slider = QSlider(Qt.Vertical)
+                depth_slider.setMinimum(0)
+                depth_slider.setMaximum(100)
+                depth_slider.setValue(0)
+                depth_slider.setFixedSize(18, 50)
+                depth_slider.valueChanged.connect(lambda v, attr=depth_attr: setattr(self, attr, v / 100.0))
+                dual_slider_row.addWidget(depth_slider)
+
+                # Mix slider
+                mix_slider = QSlider(Qt.Vertical)
+                mix_slider.setMinimum(0)
+                mix_slider.setMaximum(100)
+                mix_slider.setValue(100)  # Default to 100% mix
+                mix_slider.setFixedSize(18, 50)
+                mix_slider.valueChanged.connect(lambda v, attr=mix_attr: setattr(self, attr, v / 100.0))
+                dual_slider_row.addWidget(mix_slider)
+
+                target_container.addLayout(dual_slider_row)
+
+                # Label below sliders
                 label = QLabel(label_text)
                 label.setAlignment(Qt.AlignCenter)
                 label.setFont(QFont("Arial", 8))
+                target_container.addWidget(label)
 
-                slider_container.addWidget(slider)
-                slider_container.addWidget(label)
-                sliders_row.addLayout(slider_container)
+                sliders_row.addLayout(target_container)
 
             group_layout.addLayout(sliders_row)
             return group_layout
 
-        # Group 1: PITCH (3 sliders for Osc1/2/3 pitch)
-        pitch_group = create_slider_group("PITCH", [
-            ("O1", "lfo_to_osc1_pitch"),
-            ("O2", "lfo_to_osc2_pitch"),
-            ("O3", "lfo_to_osc3_pitch")
+        # Group 1: PITCH (3 targets, each with depth + mix)
+        pitch_group = create_dual_slider_group("PITCH", [
+            ("O1", "lfo_to_osc1_pitch", "lfo_to_osc1_pitch_mix"),
+            ("O2", "lfo_to_osc2_pitch", "lfo_to_osc2_pitch_mix"),
+            ("O3", "lfo_to_osc3_pitch", "lfo_to_osc3_pitch_mix")
         ])
         lfo_matrix_layout.addLayout(pitch_group)
 
-        # Group 2: PULSE WIDTH (3 sliders)
-        pw_group = create_slider_group("PULSE WIDTH", [
-            ("O1", "lfo_to_osc1_pw"),
-            ("O2", "lfo_to_osc2_pw"),
-            ("O3", "lfo_to_osc3_pw")
+        # Group 2: PULSE WIDTH (3 targets)
+        pw_group = create_dual_slider_group("PULSE WIDTH", [
+            ("O1", "lfo_to_osc1_pw", "lfo_to_osc1_pw_mix"),
+            ("O2", "lfo_to_osc2_pw", "lfo_to_osc2_pw_mix"),
+            ("O3", "lfo_to_osc3_pw", "lfo_to_osc3_pw_mix")
         ])
         lfo_matrix_layout.addLayout(pw_group)
 
-        # Group 3: VOLUME (3 sliders)
-        vol_group = create_slider_group("VOLUME", [
-            ("O1", "lfo_to_osc1_volume"),
-            ("O2", "lfo_to_osc2_volume"),
-            ("O3", "lfo_to_osc3_volume")
+        # Group 3: VOLUME (3 targets)
+        vol_group = create_dual_slider_group("VOLUME", [
+            ("O1", "lfo_to_osc1_volume", "lfo_to_osc1_volume_mix"),
+            ("O2", "lfo_to_osc2_volume", "lfo_to_osc2_volume_mix"),
+            ("O3", "lfo_to_osc3_volume", "lfo_to_osc3_volume_mix")
         ])
         lfo_matrix_layout.addLayout(vol_group)
 
-        # Group 4: FILTER (1 slider)
-        filter_group = create_slider_group("FILTER", [
-            ("Cutoff", "lfo_to_filter_cutoff")
+        # Group 4: FILTER (1 target)
+        filter_group = create_dual_slider_group("FILTER", [
+            ("Cutoff", "lfo_to_filter_cutoff", "lfo_to_filter_cutoff_mix")
         ])
         lfo_matrix_layout.addLayout(filter_group)
 
