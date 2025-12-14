@@ -2086,17 +2086,17 @@ class SineWaveGenerator(QMainWindow):
         self.gain2_knob.setValue(int(self.gain2 * 100))
         self.gain3_knob.setValue(int(self.gain3 * 100))
 
-        # Update ADSR sliders
-        self.attack_slider.setValue(int(self.env1.attack / 20))  # Scale 0-2000ms to 0-100
-        self.decay_slider.setValue(int(self.env1.decay / 20))    # Scale 0-2000ms to 0-100
-        self.sustain_slider.setValue(int(self.env1.sustain))     # 0-100 already
-        self.release_slider.setValue(int(self.env1.release / 50))  # Scale 0-5000ms to 0-100
+        # Update ADSR sliders (envelope values are in seconds, sliders are 0-100)
+        self.attack_slider.setValue(int(self.env1.attack * 50))  # seconds * 1000 / 20 = * 50
+        self.decay_slider.setValue(int(self.env1.decay * 50))    # seconds * 1000 / 20 = * 50
+        self.sustain_slider.setValue(int(self.env1.sustain * 100))  # 0-1 to 0-100
+        self.release_slider.setValue(int(self.env1.release * 20))  # seconds * 1000 / 50 = * 20
 
-        # Update ADSR labels
-        self.attack_slider_value.setText(f"{int(self.env1.attack)}ms")
-        self.decay_slider_value.setText(f"{int(self.env1.decay)}ms")
-        self.sustain_slider_value.setText(f"{int(self.env1.sustain)}%")
-        self.release_slider_value.setText(f"{int(self.env1.release)}ms")
+        # Update ADSR labels (convert seconds to milliseconds for display)
+        self.attack_slider_value.setText(f"{int(self.env1.attack * 1000)}ms")
+        self.decay_slider_value.setText(f"{int(self.env1.decay * 1000)}ms")
+        self.sustain_slider_value.setText(f"{int(self.env1.sustain * 100)}%")
+        self.release_slider_value.setText(f"{int(self.env1.release * 1000)}ms")
 
         # Update master volume
         self.master_volume_knob.setValue(int(self.master_volume * 100))
