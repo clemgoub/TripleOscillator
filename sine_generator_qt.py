@@ -2450,6 +2450,120 @@ class SineWaveGenerator(QMainWindow):
             self.lfo_sync_combo.setCurrentText(self.lfo.sync_division)
             self.lfo_sync_combo.blockSignals(False)
 
+        # Update oscillator enable/disable buttons
+        # Sync osc_on variables with osc_enabled from preset
+        self.osc1_on = self.osc1_enabled
+        self.osc2_on = self.osc2_enabled
+        self.osc3_on = self.osc3_enabled
+
+        # Update oscillator 1 button
+        if self.osc1_on:
+            self.osc1_button.setText("ON")
+            self.osc1_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #fc5b42;
+                    color: black;
+                    border: none;
+                    border-radius: 16px;
+                    min-width: 33px;
+                    max-width: 33px;
+                    min-height: 33px;
+                    max-height: 33px;
+                }
+                QPushButton:hover {
+                    background-color: #fc5b42;
+                }
+            """)
+        else:
+            self.osc1_button.setText("OFF")
+            self.osc1_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #3c3c3c;
+                    color: #888888;
+                    border: none;
+                    border-radius: 16px;
+                    min-width: 33px;
+                    max-width: 33px;
+                    min-height: 33px;
+                    max-height: 33px;
+                }
+                QPushButton:hover {
+                    background-color: #4c4c4c;
+                }
+            """)
+
+        # Update oscillator 2 button
+        if self.osc2_on:
+            self.osc2_button.setText("ON")
+            self.osc2_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #fc5b42;
+                    color: black;
+                    border: none;
+                    border-radius: 16px;
+                    min-width: 33px;
+                    max-width: 33px;
+                    min-height: 33px;
+                    max-height: 33px;
+                }
+                QPushButton:hover {
+                    background-color: #fc5b42;
+                }
+            """)
+        else:
+            self.osc2_button.setText("OFF")
+            self.osc2_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #3c3c3c;
+                    color: #888888;
+                    border: none;
+                    border-radius: 16px;
+                    min-width: 33px;
+                    max-width: 33px;
+                    min-height: 33px;
+                    max-height: 33px;
+                }
+                QPushButton:hover {
+                    background-color: #4c4c4c;
+                }
+            """)
+
+        # Update oscillator 3 button
+        if self.osc3_on:
+            self.osc3_button.setText("ON")
+            self.osc3_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #fc5b42;
+                    color: black;
+                    border: none;
+                    border-radius: 16px;
+                    min-width: 33px;
+                    max-width: 33px;
+                    min-height: 33px;
+                    max-height: 33px;
+                }
+                QPushButton:hover {
+                    background-color: #fc5b42;
+                }
+            """)
+        else:
+            self.osc3_button.setText("OFF")
+            self.osc3_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #3c3c3c;
+                    color: #888888;
+                    border: none;
+                    border-radius: 16px;
+                    min-width: 33px;
+                    max-width: 33px;
+                    min-height: 33px;
+                    max-height: 33px;
+                }
+                QPushButton:hover {
+                    background-color: #4c4c4c;
+                }
+            """)
+
         # Update power button
         if self.power_on:
             self.power_button.setText("ON")
