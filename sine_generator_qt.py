@@ -2043,10 +2043,17 @@ class SineWaveGenerator(QMainWindow):
 
     def update_ui_from_preset(self):
         """Update all UI elements to reflect current preset values"""
+        # Block all signals during update to prevent callback interference
         # Update waveform selectors
+        self.waveform1_combo.blockSignals(True)
+        self.waveform2_combo.blockSignals(True)
+        self.waveform3_combo.blockSignals(True)
         self.waveform1_combo.setCurrentText(self.waveform1)
         self.waveform2_combo.setCurrentText(self.waveform2)
         self.waveform3_combo.setCurrentText(self.waveform3)
+        self.waveform1_combo.blockSignals(False)
+        self.waveform2_combo.blockSignals(False)
+        self.waveform3_combo.blockSignals(False)
 
         # Update frequency knobs - block signals to prevent triggering callbacks
         self.freq1_knob.blockSignals(True)
@@ -2074,23 +2081,43 @@ class SineWaveGenerator(QMainWindow):
         self.octave3_label.setText(f"{self.octave3:+d}" if self.octave3 != 0 else "0")
 
         # Update pulse width knobs and labels
+        self.pw1_knob.blockSignals(True)
+        self.pw2_knob.blockSignals(True)
+        self.pw3_knob.blockSignals(True)
         self.pw1_knob.setValue(int(self.pulse_width1 * 100))
         self.pw2_knob.setValue(int(self.pulse_width2 * 100))
         self.pw3_knob.setValue(int(self.pulse_width3 * 100))
+        self.pw1_knob.blockSignals(False)
+        self.pw2_knob.blockSignals(False)
+        self.pw3_knob.blockSignals(False)
         self.pw1_label.setText(f"{int(self.pulse_width1 * 100)}%")
         self.pw2_label.setText(f"{int(self.pulse_width2 * 100)}%")
         self.pw3_label.setText(f"{int(self.pulse_width3 * 100)}%")
 
         # Update mixer gain knobs
+        self.gain1_knob.blockSignals(True)
+        self.gain2_knob.blockSignals(True)
+        self.gain3_knob.blockSignals(True)
         self.gain1_knob.setValue(int(self.gain1 * 100))
         self.gain2_knob.setValue(int(self.gain2 * 100))
         self.gain3_knob.setValue(int(self.gain3 * 100))
+        self.gain1_knob.blockSignals(False)
+        self.gain2_knob.blockSignals(False)
+        self.gain3_knob.blockSignals(False)
 
         # Update ADSR sliders (envelope values are in seconds, sliders are 0-100)
+        self.attack_slider.blockSignals(True)
+        self.decay_slider.blockSignals(True)
+        self.sustain_slider.blockSignals(True)
+        self.release_slider.blockSignals(True)
         self.attack_slider.setValue(int(self.env1.attack * 50))  # seconds * 1000 / 20 = * 50
         self.decay_slider.setValue(int(self.env1.decay * 50))    # seconds * 1000 / 20 = * 50
         self.sustain_slider.setValue(int(self.env1.sustain * 100))  # 0-1 to 0-100
         self.release_slider.setValue(int(self.env1.release * 20))  # seconds * 1000 / 50 = * 20
+        self.attack_slider.blockSignals(False)
+        self.decay_slider.blockSignals(False)
+        self.sustain_slider.blockSignals(False)
+        self.release_slider.blockSignals(False)
 
         # Update ADSR labels (convert seconds to milliseconds for display)
         self.attack_slider_value.setText(f"{int(self.env1.attack * 1000)}ms")
@@ -2099,15 +2126,23 @@ class SineWaveGenerator(QMainWindow):
         self.release_slider_value.setText(f"{int(self.env1.release * 1000)}ms")
 
         # Update master volume
+        self.master_volume_knob.blockSignals(True)
         self.master_volume_knob.setValue(int(self.master_volume * 100))
+        self.master_volume_knob.blockSignals(False)
 
         # Update LFO waveform and mode
+        self.lfo_waveform_combo.blockSignals(True)
+        self.lfo_mode_combo.blockSignals(True)
         self.lfo_waveform_combo.setCurrentText(self.lfo.waveform)
         self.lfo_mode_combo.setCurrentText(self.lfo.rate_mode)
+        self.lfo_waveform_combo.blockSignals(False)
+        self.lfo_mode_combo.blockSignals(False)
 
         # Update LFO sync division if needed
         if hasattr(self, 'lfo_sync_combo'):
+            self.lfo_sync_combo.blockSignals(True)
             self.lfo_sync_combo.setCurrentText(self.lfo.sync_division)
+            self.lfo_sync_combo.blockSignals(False)
 
         # Update power button
         if self.power_on:
