@@ -426,6 +426,11 @@ class SineWaveGenerator(QMainWindow):
         self.stream = None
         self.power_on = True  # Master power switch
 
+        # Oscillator enabled states
+        self.osc1_enabled = True
+        self.osc2_enabled = True
+        self.osc3_enabled = True
+
         # Oscillator 1 parameters
         self.freq1 = 440.0
         self.phase1 = 0
@@ -521,11 +526,21 @@ class SineWaveGenerator(QMainWindow):
         self.min_log = np.log10(self.min_freq)
         self.max_log = np.log10(self.max_freq)
 
+        # Preset browser
+        self.factory_presets = []  # List of preset file paths
+        self.current_preset_index = 0
+        self.current_preset_name = "Init"
+
         # Initialize UI
         self.init_ui()
 
         # Initialize voice pool based on polyphony and unison settings
         self.reallocate_voice_pool()
+
+        # Load factory presets and load Init preset
+        self.load_factory_presets()
+        if self.factory_presets:
+            self.load_preset_by_index(0)  # Load Init.json (first preset)
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -662,16 +677,84 @@ class SineWaveGenerator(QMainWindow):
 
         midi_layout.addStretch(1)
 
-        # Preset management buttons
-        save_preset_button = QPushButton("Save Preset")
-        save_preset_button.setFont(QFont("Arial", 10))
-        save_preset_button.setFixedSize(100, 40)
-        save_preset_button.setStyleSheet("""
+        # Preset browser
+        preset_browser_layout = QVBoxLayout()
+        preset_browser_layout.setSpacing(5)
+
+        # Top row: Previous, Preset Name, Next
+        preset_nav_layout = QHBoxLayout()
+        preset_nav_layout.setSpacing(5)
+
+        # Previous button
+        self.prev_preset_button = QPushButton("<")
+        self.prev_preset_button.setFont(QFont("Arial", 12, QFont.Bold))
+        self.prev_preset_button.setFixedSize(35, 30)
+        self.prev_preset_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3c3c3c;
+                color: white;
+                border: 2px solid #666666;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2a;
+            }
+        """)
+        self.prev_preset_button.clicked.connect(self.prev_preset)
+        preset_nav_layout.addWidget(self.prev_preset_button)
+
+        # Preset name label
+        self.preset_name_label = QLabel("Init")
+        self.preset_name_label.setFont(QFont("Arial", 10, QFont.Bold))
+        self.preset_name_label.setAlignment(Qt.AlignCenter)
+        self.preset_name_label.setFixedWidth(150)
+        self.preset_name_label.setStyleSheet("""
+            QLabel {
+                background-color: #2a2a2a;
+                color: #ffc452;
+                border: 2px solid #444444;
+                border-radius: 3px;
+                padding: 5px;
+            }
+        """)
+        preset_nav_layout.addWidget(self.preset_name_label)
+
+        # Next button
+        self.next_preset_button = QPushButton(">")
+        self.next_preset_button.setFont(QFont("Arial", 12, QFont.Bold))
+        self.next_preset_button.setFixedSize(35, 30)
+        self.next_preset_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3c3c3c;
+                color: white;
+                border: 2px solid #666666;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2a;
+            }
+        """)
+        self.next_preset_button.clicked.connect(self.next_preset)
+        preset_nav_layout.addWidget(self.next_preset_button)
+
+        preset_browser_layout.addLayout(preset_nav_layout)
+
+        # Bottom row: Save Preset button
+        self.save_preset_button = QPushButton("Save Preset")
+        self.save_preset_button.setFont(QFont("Arial", 9))
+        self.save_preset_button.setFixedHeight(25)
+        self.save_preset_button.setStyleSheet("""
             QPushButton {
                 background-color: #1e3a8a;
                 color: white;
                 border: 2px solid #3b82f6;
-                border-radius: 5px;
+                border-radius: 3px;
             }
             QPushButton:hover {
                 background-color: #2563eb;
@@ -680,28 +763,10 @@ class SineWaveGenerator(QMainWindow):
                 background-color: #1e40af;
             }
         """)
-        save_preset_button.clicked.connect(self.save_preset)
-        midi_layout.addWidget(save_preset_button)
+        self.save_preset_button.clicked.connect(self.save_preset)
+        preset_browser_layout.addWidget(self.save_preset_button)
 
-        load_preset_button = QPushButton("Load Preset")
-        load_preset_button.setFont(QFont("Arial", 10))
-        load_preset_button.setFixedSize(100, 40)
-        load_preset_button.setStyleSheet("""
-            QPushButton {
-                background-color: #166534;
-                color: white;
-                border: 2px solid #22c55e;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #16a34a;
-            }
-            QPushButton:pressed {
-                background-color: #15803d;
-            }
-        """)
-        load_preset_button.clicked.connect(self.load_preset)
-        midi_layout.addWidget(load_preset_button)
+        midi_layout.addLayout(preset_browser_layout)
 
         midi_layout.addStretch(1)
         main_layout.addLayout(midi_layout)
@@ -1844,11 +1909,22 @@ class SineWaveGenerator(QMainWindow):
         if not file_path.endswith('.json'):
             file_path += '.json'
 
+        # Determine current voice mode
+        if self.mono_button.isChecked():
+            voice_mode = "Mono"
+        elif self.poly_button.isChecked():
+            voice_mode = "Poly"
+        elif self.unison_button.isChecked():
+            voice_mode = "Unison"
+        else:
+            voice_mode = "Mono"  # Default
+
         # Create preset data structure
         preset = {
             "version": "1.0",  # For future compatibility
             "oscillators": {
                 "osc1": {
+                    "enabled": self.osc1_enabled,
                     "waveform": self.waveform1,
                     "frequency": self.freq1,
                     "detune": self.detune1,
@@ -1857,6 +1933,7 @@ class SineWaveGenerator(QMainWindow):
                     "gain": self.gain1
                 },
                 "osc2": {
+                    "enabled": self.osc2_enabled,
                     "waveform": self.waveform2,
                     "frequency": self.freq2,
                     "detune": self.detune2,
@@ -1865,6 +1942,7 @@ class SineWaveGenerator(QMainWindow):
                     "gain": self.gain2
                 },
                 "osc3": {
+                    "enabled": self.osc3_enabled,
                     "waveform": self.waveform3,
                     "frequency": self.freq3,
                     "detune": self.detune3,
@@ -1873,6 +1951,7 @@ class SineWaveGenerator(QMainWindow):
                     "gain": self.gain3
                 }
             },
+            "voice_mode": voice_mode,
             "envelope": {
                 "attack": self.env1.attack,
                 "decay": self.env1.decay,
@@ -1948,6 +2027,11 @@ class SineWaveGenerator(QMainWindow):
             osc2 = preset.get("oscillators", {}).get("osc2", {})
             osc3 = preset.get("oscillators", {}).get("osc3", {})
 
+            # Load oscillator enabled states (default True if missing for backward compatibility)
+            self.osc1_enabled = osc1.get("enabled", True)
+            self.osc2_enabled = osc2.get("enabled", True)
+            self.osc3_enabled = osc3.get("enabled", True)
+
             # Oscillator 1
             self.waveform1 = osc1.get("waveform", "Sine")
             self.freq1 = osc1.get("frequency", 440.0)
@@ -1971,6 +2055,14 @@ class SineWaveGenerator(QMainWindow):
             self.octave3 = osc3.get("octave", 0)
             self.pulse_width3 = osc3.get("pulse_width", 0.5)
             self.gain3 = osc3.get("gain", 0.33)
+
+            # Set mixer gains to 0.0 for disabled oscillators
+            if not self.osc1_enabled:
+                self.gain1 = 0.0
+            if not self.osc2_enabled:
+                self.gain2 = 0.0
+            if not self.osc3_enabled:
+                self.gain3 = 0.0
 
             # Envelope settings
             env = preset.get("envelope", {})
@@ -1996,6 +2088,9 @@ class SineWaveGenerator(QMainWindow):
             master = preset.get("master", {})
             self.master_volume = master.get("volume", 0.5)
             self.power_on = master.get("power", True)
+
+            # Voice mode (default "Mono" if missing for backward compatibility)
+            voice_mode = preset.get("voice_mode", "Mono")
 
             # LFO settings
             lfo = preset.get("lfo", {})
@@ -2031,6 +2126,14 @@ class SineWaveGenerator(QMainWindow):
             self.lfo_to_osc2_volume_mix = lfo_mix.get("osc2_volume", 1.0)
             self.lfo_to_osc3_volume_mix = lfo_mix.get("osc3_volume", 1.0)
 
+            # Set voice mode
+            if voice_mode == "Mono":
+                self.set_voice_mode('mono')
+            elif voice_mode == "Poly":
+                self.set_voice_mode('poly')
+            elif voice_mode == "Unison":
+                self.set_voice_mode('unison')
+
             # Update UI to reflect loaded preset
             self.update_ui_from_preset()
 
@@ -2040,6 +2143,185 @@ class SineWaveGenerator(QMainWindow):
             QMessageBox.critical(self, "Error", f"Invalid preset file:\n{str(e)}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load preset:\n{str(e)}")
+
+    def load_factory_presets(self):
+        """Scan Presets directory recursively for .json files"""
+        presets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Presets")
+
+        if not os.path.exists(presets_dir):
+            print(f"Presets directory not found: {presets_dir}")
+            return
+
+        # Find all .json files recursively
+        self.factory_presets = []
+        for root, dirs, files in os.walk(presets_dir):
+            for file in files:
+                if file.endswith('.json'):
+                    self.factory_presets.append(os.path.join(root, file))
+
+        # Sort presets alphabetically by filename
+        self.factory_presets.sort(key=lambda x: os.path.basename(x))
+
+        # Make sure Init.json is first if it exists
+        init_preset = os.path.join(presets_dir, "Init.json")
+        if init_preset in self.factory_presets:
+            self.factory_presets.remove(init_preset)
+            self.factory_presets.insert(0, init_preset)
+
+        print(f"Loaded {len(self.factory_presets)} factory presets")
+
+    def next_preset(self):
+        """Load next preset in list"""
+        if not self.factory_presets:
+            return
+
+        self.current_preset_index = (self.current_preset_index + 1) % len(self.factory_presets)
+        self.load_preset_by_index(self.current_preset_index)
+
+    def prev_preset(self):
+        """Load previous preset in list"""
+        if not self.factory_presets:
+            return
+
+        self.current_preset_index = (self.current_preset_index - 1) % len(self.factory_presets)
+        self.load_preset_by_index(self.current_preset_index)
+
+    def load_preset_by_index(self, index):
+        """Load specific preset by index"""
+        if not self.factory_presets or index < 0 or index >= len(self.factory_presets):
+            return
+
+        file_path = self.factory_presets[index]
+
+        try:
+            with open(file_path, 'r') as f:
+                preset = json.load(f)
+
+            # Extract preset name from file or JSON
+            self.current_preset_name = preset.get("name", os.path.splitext(os.path.basename(file_path))[0])
+
+            # Extract oscillator settings with defaults for forward compatibility
+            osc1 = preset.get("oscillators", {}).get("osc1", {})
+            osc2 = preset.get("oscillators", {}).get("osc2", {})
+            osc3 = preset.get("oscillators", {}).get("osc3", {})
+
+            # Load oscillator enabled states (default True if missing for backward compatibility)
+            self.osc1_enabled = osc1.get("enabled", True)
+            self.osc2_enabled = osc2.get("enabled", True)
+            self.osc3_enabled = osc3.get("enabled", True)
+
+            # Oscillator 1
+            self.waveform1 = osc1.get("waveform", "Sine")
+            self.freq1 = osc1.get("frequency", 440.0)
+            self.detune1 = osc1.get("detune", 0.0)
+            self.octave1 = osc1.get("octave", 0)
+            self.pulse_width1 = osc1.get("pulse_width", 0.5)
+            self.gain1 = osc1.get("gain", 0.33)
+
+            # Oscillator 2
+            self.waveform2 = osc2.get("waveform", "Sine")
+            self.freq2 = osc2.get("frequency", 440.0)
+            self.detune2 = osc2.get("detune", 0.0)
+            self.octave2 = osc2.get("octave", 0)
+            self.pulse_width2 = osc2.get("pulse_width", 0.5)
+            self.gain2 = osc2.get("gain", 0.33)
+
+            # Oscillator 3
+            self.waveform3 = osc3.get("waveform", "Sine")
+            self.freq3 = osc3.get("frequency", 440.0)
+            self.detune3 = osc3.get("detune", 0.0)
+            self.octave3 = osc3.get("octave", 0)
+            self.pulse_width3 = osc3.get("pulse_width", 0.5)
+            self.gain3 = osc3.get("gain", 0.33)
+
+            # Set mixer gains to 0.0 for disabled oscillators
+            if not self.osc1_enabled:
+                self.gain1 = 0.0
+            if not self.osc2_enabled:
+                self.gain2 = 0.0
+            if not self.osc3_enabled:
+                self.gain3 = 0.0
+
+            # Envelope settings
+            env = preset.get("envelope", {})
+            self.env1.attack = env.get("attack", 0.01)
+            self.env2.attack = env.get("attack", 0.01)
+            self.env3.attack = env.get("attack", 0.01)
+            self.env1.decay = env.get("decay", 0.1)
+            self.env2.decay = env.get("decay", 0.1)
+            self.env3.decay = env.get("decay", 0.1)
+            self.env1.sustain = env.get("sustain", 0.7)
+            self.env2.sustain = env.get("sustain", 0.7)
+            self.env3.sustain = env.get("sustain", 0.7)
+            self.env1.release = env.get("release", 0.2)
+            self.env2.release = env.get("release", 0.2)
+            self.env3.release = env.get("release", 0.2)
+
+            # Filter settings
+            filt = preset.get("filter", {})
+            self.filter.cutoff = filt.get("cutoff", 5000.0)
+            self.filter.resonance = filt.get("resonance", 0.0)
+
+            # Master settings
+            master = preset.get("master", {})
+            self.master_volume = master.get("volume", 0.5)
+            self.power_on = master.get("power", True)
+
+            # Voice mode (default "Mono" if missing for backward compatibility)
+            voice_mode = preset.get("voice_mode", "Mono")
+
+            # LFO settings
+            lfo = preset.get("lfo", {})
+            self.lfo.waveform = lfo.get("waveform", "Sine")
+            self.lfo.rate_mode = lfo.get("rate_mode", "Free")
+            self.lfo.rate_hz = lfo.get("rate_hz", 2.0)
+            self.lfo.sync_division = lfo.get("sync_division", "1/4")
+            self.lfo.bpm = lfo.get("bpm", 120.0)
+
+            # LFO depth parameters
+            lfo_depth = lfo.get("depth", {})
+            self.lfo_to_osc1_pitch = lfo_depth.get("osc1_pitch", 0.0)
+            self.lfo_to_osc2_pitch = lfo_depth.get("osc2_pitch", 0.0)
+            self.lfo_to_osc3_pitch = lfo_depth.get("osc3_pitch", 0.0)
+            self.lfo_to_osc1_pw = lfo_depth.get("osc1_pw", 0.0)
+            self.lfo_to_osc2_pw = lfo_depth.get("osc2_pw", 0.0)
+            self.lfo_to_osc3_pw = lfo_depth.get("osc3_pw", 0.0)
+            self.lfo_to_filter_cutoff = lfo_depth.get("filter_cutoff", 0.0)
+            self.lfo_to_osc1_volume = lfo_depth.get("osc1_volume", 0.0)
+            self.lfo_to_osc2_volume = lfo_depth.get("osc2_volume", 0.0)
+            self.lfo_to_osc3_volume = lfo_depth.get("osc3_volume", 0.0)
+
+            # LFO mix parameters
+            lfo_mix = lfo.get("mix", {})
+            self.lfo_to_osc1_pitch_mix = lfo_mix.get("osc1_pitch", 1.0)
+            self.lfo_to_osc2_pitch_mix = lfo_mix.get("osc2_pitch", 1.0)
+            self.lfo_to_osc3_pitch_mix = lfo_mix.get("osc3_pitch", 1.0)
+            self.lfo_to_osc1_pw_mix = lfo_mix.get("osc1_pw", 1.0)
+            self.lfo_to_osc2_pw_mix = lfo_mix.get("osc2_pw", 1.0)
+            self.lfo_to_osc3_pw_mix = lfo_mix.get("osc3_pw", 1.0)
+            self.lfo_to_filter_cutoff_mix = lfo_mix.get("filter_cutoff", 1.0)
+            self.lfo_to_osc1_volume_mix = lfo_mix.get("osc1_volume", 1.0)
+            self.lfo_to_osc2_volume_mix = lfo_mix.get("osc2_volume", 1.0)
+            self.lfo_to_osc3_volume_mix = lfo_mix.get("osc3_volume", 1.0)
+
+            # Set voice mode
+            if voice_mode == "Mono":
+                self.set_voice_mode('mono')
+            elif voice_mode == "Poly":
+                self.set_voice_mode('poly')
+            elif voice_mode == "Unison":
+                self.set_voice_mode('unison')
+
+            # Update UI to reflect loaded preset
+            self.update_ui_from_preset()
+
+            # Update preset name label
+            self.preset_name_label.setText(self.current_preset_name)
+
+        except json.JSONDecodeError as e:
+            print(f"Invalid preset file {file_path}: {str(e)}")
+        except Exception as e:
+            print(f"Failed to load preset {file_path}: {str(e)}")
 
     def update_ui_from_preset(self):
         """Update all UI elements to reflect current preset values"""
@@ -2094,7 +2376,7 @@ class SineWaveGenerator(QMainWindow):
         self.pw2_label.setText(f"{int(self.pulse_width2 * 100)}%")
         self.pw3_label.setText(f"{int(self.pulse_width3 * 100)}%")
 
-        # Update mixer gain knobs
+        # Update mixer gain knobs (including 0 for disabled oscillators)
         self.gain1_knob.blockSignals(True)
         self.gain2_knob.blockSignals(True)
         self.gain3_knob.blockSignals(True)
@@ -2104,6 +2386,17 @@ class SineWaveGenerator(QMainWindow):
         self.gain1_knob.blockSignals(False)
         self.gain2_knob.blockSignals(False)
         self.gain3_knob.blockSignals(False)
+
+        # Update voice mode buttons
+        self.mono_button.blockSignals(True)
+        self.poly_button.blockSignals(True)
+        self.unison_button.blockSignals(True)
+        self.mono_button.setChecked(self.mono_button.isChecked())
+        self.poly_button.setChecked(self.poly_button.isChecked())
+        self.unison_button.setChecked(self.unison_button.isChecked())
+        self.mono_button.blockSignals(False)
+        self.poly_button.blockSignals(False)
+        self.unison_button.blockSignals(False)
 
         # Update ADSR sliders (envelope values are in seconds, sliders are 0-100)
         self.attack_slider.blockSignals(True)
