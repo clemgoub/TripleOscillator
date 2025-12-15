@@ -2423,6 +2423,19 @@ class SineWaveGenerator(QMainWindow):
         self.master_volume_knob.setValue(int(self.master_volume * 100))
         self.master_volume_knob.blockSignals(False)
 
+        # Update filter knobs
+        self.cutoff_knob.blockSignals(True)
+        self.resonance_knob.blockSignals(True)
+        # Cutoff: reverse the logarithmic formula (cutoff_hz = 20 * (250 ** (v/100)))
+        # v = 100 * log(cutoff_hz / 20) / log(250)
+        if self.filter.cutoff > 0:
+            cutoff_knob_value = int(100 * np.log(self.filter.cutoff / 20) / np.log(250))
+            self.cutoff_knob.setValue(cutoff_knob_value)
+        # Resonance: direct percentage
+        self.resonance_knob.setValue(int(self.filter.resonance * 100))
+        self.cutoff_knob.blockSignals(False)
+        self.resonance_knob.blockSignals(False)
+
         # Update LFO waveform and mode
         self.lfo_waveform_combo.blockSignals(True)
         self.lfo_mode_combo.blockSignals(True)
