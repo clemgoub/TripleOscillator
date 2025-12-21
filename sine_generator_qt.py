@@ -271,10 +271,15 @@ class LowPassFilter:
         self.zi = None
 
     def process(self, input_signal):
-        """Apply low-pass filter with proper state preservation"""
+        """Apply low-pass filter with proper state preservation and stability"""
         # Calculate filter coefficients
-        freq = self.cutoff / self.sample_rate
-        q = 1.0 + self.resonance * 10.0  # Map 0-1 to 1-11
+        freq = np.clip(self.cutoff / self.sample_rate, 0.001, 0.499)  # Prevent Nyquist issues
+
+        # Conservative Q limiting to prevent instability and self-oscillation
+        # Map 0-1 resonance to Q range 0.707-15 (instead of 1-30)
+        # Q=0.707 is Butterworth (maximally flat), higher Q adds resonance
+        q = 0.707 + self.resonance * 14.293  # Max Q of 15
+        q = np.clip(q, 0.5, 15.0)  # Hard limit for stability
 
         omega = 2.0 * np.pi * freq
         sn = np.sin(omega)
@@ -299,13 +304,22 @@ class LowPassFilter:
         b = [b0, b1, b2]
         a = [1.0, a1, a2]
 
-        # Initialize state only once, keep it even when parameters change
-        # This prevents clicks when adjusting filter in real-time
+        # Initialize state only on first run
         if self.zi is None:
-            self.zi = scipy_signal.lfilter_zi(b, a)
+            self.zi = scipy_signal.lfilter_zi(b, a) * input_signal[0]
 
         # Apply filter with state preservation
         output, self.zi = scipy_signal.lfilter(b, a, input_signal, zi=self.zi)
+
+        # Aggressive output clamping to prevent filter blowup
+        output = np.clip(output, -2.0, 2.0)
+
+        # Clamp filter state to prevent runaway values (tighter bounds)
+        self.zi = np.clip(self.zi, -10.0, 10.0)
+
+        # Check for NaN or Inf and reset if found (safety)
+        if np.any(np.isnan(self.zi)) or np.any(np.isinf(self.zi)):
+            self.zi = scipy_signal.lfilter_zi(b, a) * 0.0
 
         return output
 
@@ -391,7 +405,7 @@ class LFOGenerator:
 
 
 class Voice:
-    """Represents a single voice with three oscillators and envelopes"""
+    """Represents a single voice with three oscillators and single envelope (applied post-mixer)"""
     def __init__(self, sample_rate):
         self.sample_rate = sample_rate
         self.note = None  # MIDI note number (None if voice is free)
@@ -403,22 +417,18 @@ class Voice:
         self.phase2 = 0
         self.phase3 = 0
 
-        # Envelope generators (independent per voice)
-        self.env1 = EnvelopeGenerator(sample_rate)
-        self.env2 = EnvelopeGenerator(sample_rate)
-        self.env3 = EnvelopeGenerator(sample_rate)
+        # Single envelope generator (applied post-mixer for efficiency)
+        self.env = EnvelopeGenerator(sample_rate)
 
         # Unison detuning offset (set when voice is allocated)
         self.unison_detune = 0.0  # In cents
 
     def is_active(self):
-        """Voice is active if any envelope is not idle"""
-        return (self.env1.phase != 'idle' or
-                self.env2.phase != 'idle' or
-                self.env3.phase != 'idle')
+        """Voice is active if envelope is not idle"""
+        return self.env.phase != 'idle'
 
     def is_free(self):
-        """Voice is free if no note is assigned and all envelopes are idle"""
+        """Voice is free if no note is assigned and envelope is idle"""
         return self.note is None and not self.is_active()
 
     def trigger(self, note, velocity, unison_detune=0.0, phase_offset=0.0):
@@ -441,18 +451,97 @@ class Voice:
         self.phase2 = phase_offset
         self.phase3 = phase_offset
 
-        # Trigger envelopes
-        self.env1.trigger()
-        self.env2.trigger()
-        self.env3.trigger()
+        # Trigger single envelope
+        self.env.trigger()
 
     def release(self):
         """Release this voice (start release phase, but keep note assigned until idle)"""
         # DON'T set note = None here - we need it for the audio callback during release
-        # It will be set to None when all envelopes reach idle phase
-        self.env1.release_note()
-        self.env2.release_note()
-        self.env3.release_note()
+        # It will be set to None when envelope reaches idle phase
+        self.env.release_note()
+
+
+class NoiseGenerator:
+    """Generates white, pink, and brown noise with envelope"""
+    def __init__(self, sample_rate):
+        self.sample_rate = sample_rate
+        self.noise_type = "White"  # White, Pink, or Brown
+
+        # Envelope for noise (shares ADSR settings with oscillators)
+        self.envelope = EnvelopeGenerator(sample_rate)
+
+        # Pink noise filter state (using Paul Kellet's refined method)
+        self.pink_b0 = 0.0
+        self.pink_b1 = 0.0
+        self.pink_b2 = 0.0
+        self.pink_b3 = 0.0
+        self.pink_b4 = 0.0
+        self.pink_b5 = 0.0
+        self.pink_b6 = 0.0
+
+        # Brown noise integrator state
+        self.brown_state = 0.0
+
+    def trigger(self):
+        """Trigger noise envelope"""
+        self.envelope.trigger()
+
+    def release(self):
+        """Release noise envelope"""
+        self.envelope.release_note()
+
+    def generate_white(self, num_samples):
+        """Generate white noise (uniform frequency spectrum)"""
+        return np.random.uniform(-1.0, 1.0, num_samples)
+
+    def generate_pink(self, num_samples):
+        """Generate pink noise (1/f frequency spectrum) using Paul Kellet's method"""
+        output = np.zeros(num_samples)
+
+        for i in range(num_samples):
+            white = np.random.uniform(-1.0, 1.0)
+
+            # Apply pink noise filter (sum of multiple octaves)
+            self.pink_b0 = 0.99886 * self.pink_b0 + white * 0.0555179
+            self.pink_b1 = 0.99332 * self.pink_b1 + white * 0.0750759
+            self.pink_b2 = 0.96900 * self.pink_b2 + white * 0.1538520
+            self.pink_b3 = 0.86650 * self.pink_b3 + white * 0.3104856
+            self.pink_b4 = 0.55000 * self.pink_b4 + white * 0.5329522
+            self.pink_b5 = -0.7616 * self.pink_b5 - white * 0.0168980
+
+            pink = (self.pink_b0 + self.pink_b1 + self.pink_b2 +
+                   self.pink_b3 + self.pink_b4 + self.pink_b5 +
+                   self.pink_b6 + white * 0.5362)
+
+            self.pink_b6 = white * 0.115926
+
+            # Normalize
+            output[i] = pink * 0.11
+
+        return output
+
+    def generate_brown(self, num_samples):
+        """Generate brown noise (Brownian/red noise, 1/f^2 spectrum)"""
+        output = np.zeros(num_samples)
+
+        for i in range(num_samples):
+            white = np.random.uniform(-1.0, 1.0)
+            # Integrate white noise with leak to prevent DC drift
+            self.brown_state = (self.brown_state + white * 0.02) * 0.998
+            # Clamp to prevent unbounded growth
+            self.brown_state = np.clip(self.brown_state, -1.0, 1.0)
+            output[i] = self.brown_state
+
+        return output * 3.5  # Scale up brown noise
+
+    def generate(self, num_samples):
+        """Generate noise based on current type"""
+        if self.noise_type == "Pink":
+            return self.generate_pink(num_samples)
+        elif self.noise_type == "Brown":
+            return self.generate_brown(num_samples)
+        else:  # White
+            return self.generate_white(num_samples)
 
 
 class SineWaveGenerator(QMainWindow):
@@ -502,20 +591,22 @@ class SineWaveGenerator(QMainWindow):
         self.gain3 = 0.33
         self.master_volume = 0.5  # Master volume (0.0 to 1.0)
 
-        # Envelope generators (one per oscillator) - TEMPLATE ONLY, not used for audio
-        self.env1 = EnvelopeGenerator(self.sample_rate)
-        self.env2 = EnvelopeGenerator(self.sample_rate)
-        self.env3 = EnvelopeGenerator(self.sample_rate)
-        # Force these template envelopes to idle - they should never be active
-        self.env1.force_reset()
-        self.env2.force_reset()
-        self.env3.force_reset()
+        # Single envelope generator - TEMPLATE ONLY, not used for audio
+        # This template is copied to each voice with updated ADSR parameters
+        self.env = EnvelopeGenerator(self.sample_rate)
+        # Force template envelope to idle - it should never be active
+        self.env.force_reset()
 
         # Filter
         self.filter = LowPassFilter(self.sample_rate)
 
         # LFO
         self.lfo = LFOGenerator(self.sample_rate)
+
+        # Noise Generator
+        self.noise = NoiseGenerator(self.sample_rate)
+        self.noise_on = False
+        self.noise_gain = 0.5  # 0-1
 
         # Modulation matrix (depth 0-1 for each destination)
         self.lfo_to_osc1_pitch = 0.0
@@ -1371,6 +1462,75 @@ class SineWaveGenerator(QMainWindow):
 
         layout.addStretch(1)
 
+        # Noise section
+        noise_label = QLabel("Noise")
+        noise_label.setAlignment(Qt.AlignCenter)
+        noise_label.setFont(QFont("Arial", 9))
+        layout.addWidget(noise_label)
+
+        # Create horizontal layout for noise controls
+        noise_controls_layout = QHBoxLayout()
+        noise_controls_layout.addStretch(1)
+
+        # Left side: ON/OFF button and type selector stacked vertically
+        noise_left_layout = QVBoxLayout()
+        noise_left_layout.setSpacing(3)
+
+        # Noise ON/OFF button
+        self.noise_button = QPushButton("OFF")
+        self.noise_button.setFont(QFont("Arial", 8))
+        self.noise_button.setFixedSize(40, 20)
+        self.noise_button.setCheckable(True)
+        self.noise_button.clicked.connect(self.toggle_noise)
+        self.noise_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3c3c3c;
+                color: #888888;
+                border: none;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #4c4c4c;
+            }
+            QPushButton:checked {
+                background-color: #fc5b42;
+                color: black;
+            }
+        """)
+        noise_left_layout.addWidget(self.noise_button)
+
+        # Noise type selector
+        self.noise_type_combo = QComboBox()
+        self.noise_type_combo.addItems(["White", "Pink", "Brown"])
+        self.noise_type_combo.setFixedWidth(65)
+        self.noise_type_combo.setFixedHeight(18)
+        self.noise_type_combo.currentTextChanged.connect(lambda t: setattr(self.noise, 'noise_type', t))
+        noise_left_layout.addWidget(self.noise_type_combo)
+
+        noise_controls_layout.addLayout(noise_left_layout)
+        noise_controls_layout.addSpacing(5)
+
+        # Right side: Gain knob
+        self.noise_gain_knob = QDial()
+        self.noise_gain_knob.setMinimum(0)
+        self.noise_gain_knob.setMaximum(100)
+        self.noise_gain_knob.setNotchesVisible(True)
+        self.noise_gain_knob.setWrapping(False)
+        self.noise_gain_knob.setFixedSize(45, 45)
+        self.noise_gain_knob.setStyleSheet("""
+            QDial {
+                background: transparent;
+            }
+        """)
+        self.noise_gain_knob.setValue(50)
+        self.noise_gain_knob.valueChanged.connect(lambda v: setattr(self, 'noise_gain', v / 100.0))
+        noise_controls_layout.addWidget(self.noise_gain_knob)
+
+        noise_controls_layout.addStretch(1)
+        layout.addLayout(noise_controls_layout)
+
+        layout.addStretch(1)
+
         # Master Volume knob (Medium: 70x70)
         master_label = QLabel("Master")
         master_label.setAlignment(Qt.AlignCenter)
@@ -1980,57 +2140,49 @@ class SineWaveGenerator(QMainWindow):
         self.master_volume = value / 100.0
 
     def update_adsr(self, param, value):
-        """Update ADSR parameters"""
+        """Update ADSR parameters (single envelope per voice)"""
         if param == 'attack':
             # Convert ms to seconds
             attack_val = value / 1000.0
-            self.env1.attack = attack_val
-            self.env2.attack = attack_val
-            self.env3.attack = attack_val
+            self.env.attack = attack_val
+            # Update noise envelope (4th oscillator)
+            self.noise.envelope.attack = attack_val
             # Update all voice envelopes in real-time
             for voice in self.voice_pool:
-                voice.env1.attack = attack_val
-                voice.env2.attack = attack_val
-                voice.env3.attack = attack_val
+                voice.env.attack = attack_val
             # Update UI label
             self.attack_slider_value.setText(f"{int(value)}ms")
         elif param == 'decay':
             # Convert ms to seconds
             decay_val = value / 1000.0
-            self.env1.decay = decay_val
-            self.env2.decay = decay_val
-            self.env3.decay = decay_val
+            self.env.decay = decay_val
+            # Update noise envelope (4th oscillator)
+            self.noise.envelope.decay = decay_val
             # Update all voice envelopes in real-time
             for voice in self.voice_pool:
-                voice.env1.decay = decay_val
-                voice.env2.decay = decay_val
-                voice.env3.decay = decay_val
+                voice.env.decay = decay_val
             # Update UI label
             self.decay_slider_value.setText(f"{int(value)}ms")
         elif param == 'sustain':
             # Convert percentage to 0-1
             sustain_val = value / 100.0
-            self.env1.sustain = sustain_val
-            self.env2.sustain = sustain_val
-            self.env3.sustain = sustain_val
+            self.env.sustain = sustain_val
+            # Update noise envelope (4th oscillator)
+            self.noise.envelope.sustain = sustain_val
             # Update all voice envelopes in real-time
             for voice in self.voice_pool:
-                voice.env1.sustain = sustain_val
-                voice.env2.sustain = sustain_val
-                voice.env3.sustain = sustain_val
+                voice.env.sustain = sustain_val
             # Update UI label
             self.sustain_slider_value.setText(f"{int(value)}%")
         elif param == 'release':
             # Convert ms to seconds
             release_val = value / 1000.0
-            self.env1.release = release_val
-            self.env2.release = release_val
-            self.env3.release = release_val
+            self.env.release = release_val
+            # Update noise envelope (4th oscillator)
+            self.noise.envelope.release = release_val
             # Update all voice envelopes in real-time
             for voice in self.voice_pool:
-                voice.env1.release = release_val
-                voice.env2.release = release_val
-                voice.env3.release = release_val
+                voice.env.release = release_val
             # Update UI label
             self.release_slider_value.setText(f"{int(value)}ms")
 
@@ -2102,10 +2254,10 @@ class SineWaveGenerator(QMainWindow):
             "voice_mode": voice_mode,
             "playback_mode": self.playback_mode,
             "envelope": {
-                "attack": self.env1.attack,
-                "decay": self.env1.decay,
-                "sustain": self.env1.sustain,
-                "release": self.env1.release
+                "attack": self.env.attack,
+                "decay": self.env.decay,
+                "sustain": self.env.sustain,
+                "release": self.env.release
             },
             "filter": {
                 "cutoff": self.filter.cutoff,
@@ -2141,6 +2293,11 @@ class SineWaveGenerator(QMainWindow):
                     "osc2_volume": self.lfo_to_osc2_volume_mix,
                     "osc3_volume": self.lfo_to_osc3_volume_mix
                 }
+            },
+            "noise": {
+                "enabled": self.noise_on,
+                "type": self.noise.noise_type,
+                "gain": self.noise_gain
             },
             "master": {
                 "volume": self.master_volume,
@@ -2213,20 +2370,16 @@ class SineWaveGenerator(QMainWindow):
             if not self.osc3_enabled:
                 self.gain3 = 0.0
 
-            # Envelope settings
+            # Envelope settings (single envelope applied post-mixer)
             env = preset.get("envelope", {})
-            self.env1.attack = env.get("attack", 0.01)
-            self.env2.attack = env.get("attack", 0.01)
-            self.env3.attack = env.get("attack", 0.01)
-            self.env1.decay = env.get("decay", 0.1)
-            self.env2.decay = env.get("decay", 0.1)
-            self.env3.decay = env.get("decay", 0.1)
-            self.env1.sustain = env.get("sustain", 0.7)
-            self.env2.sustain = env.get("sustain", 0.7)
-            self.env3.sustain = env.get("sustain", 0.7)
-            self.env1.release = env.get("release", 0.2)
-            self.env2.release = env.get("release", 0.2)
-            self.env3.release = env.get("release", 0.2)
+            self.env.attack = env.get("attack", 0.01)
+            self.noise.envelope.attack = env.get("attack", 0.01)  # Noise as 4th oscillator
+            self.env.decay = env.get("decay", 0.1)
+            self.noise.envelope.decay = env.get("decay", 0.1)  # Noise as 4th oscillator
+            self.env.sustain = env.get("sustain", 0.7)
+            self.noise.envelope.sustain = env.get("sustain", 0.7)  # Noise as 4th oscillator
+            self.env.release = env.get("release", 0.2)
+            self.noise.envelope.release = env.get("release", 0.2)  # Noise as 4th oscillator
 
             # Filter settings
             filt = preset.get("filter", {})
@@ -2237,6 +2390,12 @@ class SineWaveGenerator(QMainWindow):
             master = preset.get("master", {})
             self.master_volume = master.get("volume", 0.5)
             self.power_on = master.get("power", True)
+
+            # Noise settings (default off if missing for backward compatibility)
+            noise = preset.get("noise", {})
+            self.noise_on = noise.get("enabled", False)
+            self.noise.noise_type = noise.get("type", "White")
+            self.noise_gain = noise.get("gain", 0.5)
 
             # Voice mode (default "Mono" if missing for backward compatibility)
             voice_mode = preset.get("voice_mode", "Mono")
@@ -2395,20 +2554,16 @@ class SineWaveGenerator(QMainWindow):
             if not self.osc3_enabled:
                 self.gain3 = 0.0
 
-            # Envelope settings
+            # Envelope settings (single envelope applied post-mixer)
             env = preset.get("envelope", {})
-            self.env1.attack = env.get("attack", 0.01)
-            self.env2.attack = env.get("attack", 0.01)
-            self.env3.attack = env.get("attack", 0.01)
-            self.env1.decay = env.get("decay", 0.1)
-            self.env2.decay = env.get("decay", 0.1)
-            self.env3.decay = env.get("decay", 0.1)
-            self.env1.sustain = env.get("sustain", 0.7)
-            self.env2.sustain = env.get("sustain", 0.7)
-            self.env3.sustain = env.get("sustain", 0.7)
-            self.env1.release = env.get("release", 0.2)
-            self.env2.release = env.get("release", 0.2)
-            self.env3.release = env.get("release", 0.2)
+            self.env.attack = env.get("attack", 0.01)
+            self.noise.envelope.attack = env.get("attack", 0.01)  # Noise as 4th oscillator
+            self.env.decay = env.get("decay", 0.1)
+            self.noise.envelope.decay = env.get("decay", 0.1)  # Noise as 4th oscillator
+            self.env.sustain = env.get("sustain", 0.7)
+            self.noise.envelope.sustain = env.get("sustain", 0.7)  # Noise as 4th oscillator
+            self.env.release = env.get("release", 0.2)
+            self.noise.envelope.release = env.get("release", 0.2)  # Noise as 4th oscillator
 
             # Filter settings
             filt = preset.get("filter", {})
@@ -2419,6 +2574,12 @@ class SineWaveGenerator(QMainWindow):
             master = preset.get("master", {})
             self.master_volume = master.get("volume", 0.5)
             self.power_on = master.get("power", True)
+
+            # Noise settings (default off if missing for backward compatibility)
+            noise = preset.get("noise", {})
+            self.noise_on = noise.get("enabled", False)
+            self.noise.noise_type = noise.get("type", "White")
+            self.noise_gain = noise.get("gain", 0.5)
 
             # Voice mode (default "Mono" if missing for backward compatibility)
             voice_mode = preset.get("voice_mode", "Mono")
@@ -2560,25 +2721,33 @@ class SineWaveGenerator(QMainWindow):
         self.decay_slider.blockSignals(True)
         self.sustain_slider.blockSignals(True)
         self.release_slider.blockSignals(True)
-        self.attack_slider.setValue(int(self.env1.attack * 50))  # seconds * 1000 / 20 = * 50
-        self.decay_slider.setValue(int(self.env1.decay * 50))    # seconds * 1000 / 20 = * 50
-        self.sustain_slider.setValue(int(self.env1.sustain * 100))  # 0-1 to 0-100
-        self.release_slider.setValue(int(self.env1.release * 20))  # seconds * 1000 / 50 = * 20
+        self.attack_slider.setValue(int(self.env.attack * 50))  # seconds * 1000 / 20 = * 50
+        self.decay_slider.setValue(int(self.env.decay * 50))    # seconds * 1000 / 20 = * 50
+        self.sustain_slider.setValue(int(self.env.sustain * 100))  # 0-1 to 0-100
+        self.release_slider.setValue(int(self.env.release * 20))  # seconds * 1000 / 50 = * 20
         self.attack_slider.blockSignals(False)
         self.decay_slider.blockSignals(False)
         self.sustain_slider.blockSignals(False)
         self.release_slider.blockSignals(False)
 
         # Update ADSR labels (convert seconds to milliseconds for display)
-        self.attack_slider_value.setText(f"{int(self.env1.attack * 1000)}ms")
-        self.decay_slider_value.setText(f"{int(self.env1.decay * 1000)}ms")
-        self.sustain_slider_value.setText(f"{int(self.env1.sustain * 100)}%")
-        self.release_slider_value.setText(f"{int(self.env1.release * 1000)}ms")
+        self.attack_slider_value.setText(f"{int(self.env.attack * 1000)}ms")
+        self.decay_slider_value.setText(f"{int(self.env.decay * 1000)}ms")
+        self.sustain_slider_value.setText(f"{int(self.env.sustain * 100)}%")
+        self.release_slider_value.setText(f"{int(self.env.release * 1000)}ms")
 
         # Update master volume
         self.master_volume_knob.blockSignals(True)
         self.master_volume_knob.setValue(int(self.master_volume * 100))
         self.master_volume_knob.blockSignals(False)
+
+        # Update noise controls
+        self.noise_button.setChecked(self.noise_on)
+        self.noise_button.setText("ON" if self.noise_on else "OFF")
+        self.noise_type_combo.setCurrentText(self.noise.noise_type)
+        self.noise_gain_knob.blockSignals(True)
+        self.noise_gain_knob.setValue(int(self.noise_gain * 100))
+        self.noise_gain_knob.blockSignals(False)
 
         # Update filter knobs
         self.cutoff_knob.blockSignals(True)
@@ -2735,22 +2904,12 @@ class SineWaveGenerator(QMainWindow):
         # Clear active voices
         self.active_voices = {}
 
-        # Copy envelope settings to all voices
+        # Copy envelope settings to all voices (single envelope)
         for voice in self.voice_pool:
-            voice.env1.attack = self.env1.attack
-            voice.env1.decay = self.env1.decay
-            voice.env1.sustain = self.env1.sustain
-            voice.env1.release = self.env1.release
-
-            voice.env2.attack = self.env2.attack
-            voice.env2.decay = self.env2.decay
-            voice.env2.sustain = self.env2.sustain
-            voice.env2.release = self.env2.release
-
-            voice.env3.attack = self.env3.attack
-            voice.env3.decay = self.env3.decay
-            voice.env3.sustain = self.env3.sustain
-            voice.env3.release = self.env3.release
+            voice.env.attack = self.env.attack
+            voice.env.decay = self.env.decay
+            voice.env.sustain = self.env.sustain
+            voice.env.release = self.env.release
 
     def calculate_unison_detune_pattern(self, unison_count):
         """Returns list of detune amounts in cents for unison voices
@@ -2792,8 +2951,7 @@ class SineWaveGenerator(QMainWindow):
             return None
 
         # First, try to find a voice in release phase (oldest first)
-        release_voices = [v for v in self.voice_pool
-                         if v.env1.phase == 'release' or v.env2.phase == 'release' or v.env3.phase == 'release']
+        release_voices = [v for v in self.voice_pool if v.env.phase == 'release']
         if release_voices:
             # Return oldest release voice
             return max(release_voices, key=lambda v: v.age)
@@ -2870,7 +3028,7 @@ class SineWaveGenerator(QMainWindow):
             # Apply unison detune to base frequency
             base_freq_detuned = self.apply_detune(base_freq, voice.unison_detune)
 
-            # Generate each oscillator for this voice
+            # Generate each oscillator for this voice (WITHOUT envelope - applied post-mixer)
             voice_mix = np.zeros(frames)
 
             # Oscillator 1
@@ -2893,13 +3051,12 @@ class SineWaveGenerator(QMainWindow):
 
                 # Generate waveform using voice's phase
                 wave1 = self.generate_waveform(self.waveform1, voice.phase1, phase_increment1, frames, modulated_pw1)
-                env1 = voice.env1.process(frames)
 
                 # Apply volume modulation (tremolo) - apply as array
                 vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc1_volume * self.lfo_to_osc1_volume_mix)
                 modulated_gain1 = self.gain1 * np.clip(vol_mod, 0.0, 1.0)
 
-                voice_mix += modulated_gain1 * wave1 * env1
+                voice_mix += modulated_gain1 * wave1  # NO envelope yet
 
                 # Update voice phase
                 voice.phase1 = (voice.phase1 + frames * phase_increment1) % (2 * np.pi)
@@ -2924,13 +3081,12 @@ class SineWaveGenerator(QMainWindow):
 
                 # Generate waveform using voice's phase
                 wave2 = self.generate_waveform(self.waveform2, voice.phase2, phase_increment2, frames, modulated_pw2)
-                env2 = voice.env2.process(frames)
 
                 # Apply volume modulation - apply as array
                 vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc2_volume * self.lfo_to_osc2_volume_mix)
                 modulated_gain2 = self.gain2 * np.clip(vol_mod, 0.0, 1.0)
 
-                voice_mix += modulated_gain2 * wave2 * env2
+                voice_mix += modulated_gain2 * wave2  # NO envelope yet
 
                 # Update voice phase
                 voice.phase2 = (voice.phase2 + frames * phase_increment2) % (2 * np.pi)
@@ -2955,21 +3111,24 @@ class SineWaveGenerator(QMainWindow):
 
                 # Generate waveform using voice's phase
                 wave3 = self.generate_waveform(self.waveform3, voice.phase3, phase_increment3, frames, modulated_pw3)
-                env3 = voice.env3.process(frames)
 
                 # Apply volume modulation - apply as array
                 vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc3_volume * self.lfo_to_osc3_volume_mix)
                 modulated_gain3 = self.gain3 * np.clip(vol_mod, 0.0, 1.0)
 
-                voice_mix += modulated_gain3 * wave3 * env3
+                voice_mix += modulated_gain3 * wave3  # NO envelope yet
 
                 # Update voice phase
                 voice.phase3 = (voice.phase3 + frames * phase_increment3) % (2 * np.pi)
 
-            # Add this voice's output to the mix
+            # Apply SINGLE envelope to mixed oscillators (post-mixer efficiency!)
+            env = voice.env.process(frames)
+            voice_mix *= env
+
+            # Add this voice's output to the main mix
             mixed += voice_mix
 
-            # Clean up voice if all envelopes are idle (release finished)
+            # Clean up voice if envelope is idle (release finished)
             if not voice.is_active():
                 voice.note = None  # Mark voice as free
 
@@ -2991,6 +3150,12 @@ class SineWaveGenerator(QMainWindow):
             # Use sqrt normalization for better perceived loudness
             normalization = 1.0 / np.sqrt(active_count)
             mixed *= normalization
+
+        # Mix in noise if enabled (with envelope like a 4th oscillator)
+        if self.noise_on:
+            noise_signal = self.noise.generate(frames)
+            noise_env = self.noise.envelope.process(frames)
+            mixed += noise_signal * noise_env * self.noise_gain
 
         # Apply filter with LFO modulation to cutoff
         if self.lfo_to_filter_cutoff > 0:
@@ -3105,6 +3270,21 @@ class SineWaveGenerator(QMainWindow):
                     background-color: #3c3c3c;
                 }
             """)
+
+    def toggle_noise(self):
+        """Toggle noise generator on/off"""
+        self.noise_on = not self.noise_on
+
+        if self.noise_on:
+            self.noise_button.setText("ON")
+            # In drone mode, trigger the noise envelope like an oscillator
+            if self.playback_mode == 'drone':
+                self.noise.trigger()
+        else:
+            self.noise_button.setText("OFF")
+            # In drone mode, release the noise envelope
+            if self.playback_mode == 'drone':
+                self.noise.release()
 
     def toggle_power(self):
         """Toggle master power on/off"""
@@ -3245,9 +3425,7 @@ class SineWaveGenerator(QMainWindow):
         if self.max_polyphony == 1:
             # Force reset ALL voices in the pool for immediate cutoff
             for voice in self.voice_pool:
-                voice.env1.force_reset()
-                voice.env2.force_reset()
-                voice.env3.force_reset()
+                voice.env.force_reset()
                 voice.note = None
             # Clear active voices dict for monophonic mode
             self.active_voices = {}
@@ -3307,6 +3485,11 @@ class SineWaveGenerator(QMainWindow):
         self.freq2 = self.apply_octave(self.apply_detune(base_freq, self.detune2), self.octave2)
         self.freq3 = self.apply_octave(self.apply_detune(base_freq, self.detune3), self.octave3)
 
+        # Trigger noise envelope if noise is enabled (like a 4th oscillator)
+        # Only in chromatic mode - in drone mode, noise is triggered by its own button
+        if self.noise_on and self.playback_mode == 'chromatic':
+            self.noise.trigger()
+
         # Start audio if needed
         self.manage_audio_stream()
 
@@ -3326,6 +3509,11 @@ class SineWaveGenerator(QMainWindow):
         # Update legacy current_note for backward compatibility
         if self.current_note == note:
             self.current_note = None
+
+        # Release noise envelope if noise is enabled (like a 4th oscillator)
+        # Only in chromatic mode - in drone mode, noise is triggered by its own button
+        if self.noise_on and self.playback_mode == 'chromatic':
+            self.noise.release()
 
     def handle_midi_bpm_change(self, bpm):
         """Handle BPM changes from MIDI clock"""

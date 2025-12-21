@@ -71,8 +71,10 @@ I strongly discourage using the code in this repository for the purpose of train
 
 ### Low-Pass Filter
 - **Cutoff Frequency**: 20-5000 Hz - Remove frequencies above the cutoff
-- **Resonance**: 0-100% - Emphasize the cutoff frequency for character
-- **Biquad Filter Design**: Professional-quality filtering
+- **Resonance**: 0-100% - Emphasize the cutoff frequency for character (Q range 0.707-15)
+- **Biquad Filter Design**: Professional-quality filtering with stability protection
+- **Artifact-Free**: Advanced state management prevents crackling at high resonance
+- **Smooth Parameter Changes**: No clicks when sweeping cutoff or resonance
 
 ### LFO (Low-Frequency Oscillator)
 - **3 Waveforms**: Sine, Triangle, Square for different modulation shapes
@@ -94,12 +96,21 @@ I strongly discourage using the code in this repository for the purpose of train
 - **Real-time Modulation**: All parameters update instantly during playback
 - **JUNO-106 Style Interface**: Vertical sliders with tick marks for precise control
 
+### Noise Generator
+- **3 Noise Types**: White, Pink (1/f), and Brown (Brownian) noise
+- **Independent Control**: On/off toggle, type selector, and gain knob
+- **Envelope Integration**: Shares ADSR settings with oscillators
+- **Dual Mode Operation**:
+  - **Chromatic Mode**: Triggered by keyboard/MIDI note events
+  - **Drone Mode**: Triggered by noise ON/OFF button
+- **4th Oscillator**: Behaves as an additional sound source alongside the 3 main oscillators
+
 ### Preset Management
 - **Save Presets**: Save all synth settings to JSON files
 - **Load Presets**: Recall saved settings instantly
 - **Forward Compatible**: Old presets work with new features via smart defaults
 - **Human Readable**: JSON format allows manual editing
-- **Complete State**: Saves oscillators, envelope, filter, voice mode, playback mode, and master settings
+- **Complete State**: Saves oscillators, envelope, filter, noise, voice mode, playback mode, and master settings
 
 ### Audio Engine
 - **44.1 kHz Sample Rate**: CD-quality audio
@@ -180,7 +191,8 @@ classDiagram
         +voice_pool: list~Voice~
         +max_polyphony: int
         +unison_count: int
-        +env1, env2, env3: EnvelopeGenerator
+        +env: EnvelopeGenerator
+        +noise: NoiseGenerator
         +filter: LowPassFilter
         +midi_handler: MIDIHandler
         +init_ui()
@@ -202,13 +214,20 @@ classDiagram
     class Voice {
         +note: int
         +velocity: float
-        +freq1, freq2, freq3: float
         +phase1, phase2, phase3: float
-        +detune_offset: float
-        +env1, env2, env3: EnvelopeGenerator
-        +last_used: float
+        +unison_detune: float
+        +env: EnvelopeGenerator
+        +age: int
         +is_active()
-        +trigger(note, velocity)
+        +trigger(note, velocity, detune, phase_offset)
+        +release()
+    }
+
+    class NoiseGenerator {
+        +noise_type: str
+        +envelope: EnvelopeGenerator
+        +generate(num_samples)
+        +trigger()
         +release()
     }
 
@@ -217,6 +236,7 @@ classDiagram
         +running: bool
         +note_on: Signal
         +note_off: Signal
+        +bpm_changed: Signal
         +start(port_name)
         +stop()
     }
@@ -239,13 +259,16 @@ classDiagram
         +resonance: float
         +zi: array
         +process(input_signal)
+        +reset()
     }
 
-    SineWaveGenerator "1" --> "3" EnvelopeGenerator : template
+    SineWaveGenerator "1" --> "1" EnvelopeGenerator : template
     SineWaveGenerator "1" --> "8" Voice : voice pool
+    SineWaveGenerator "1" --> "1" NoiseGenerator : contains
     SineWaveGenerator "1" --> "1" LowPassFilter : contains
     SineWaveGenerator "1" --> "1" MIDIHandler : contains
-    Voice "1" --> "3" EnvelopeGenerator : per-voice
+    Voice "1" --> "1" EnvelopeGenerator : post-mixer envelope
+    NoiseGenerator "1" --> "1" EnvelopeGenerator : noise envelope
 ```
 
 ### Signal Flow
@@ -255,21 +278,24 @@ graph LR
     MIDI[MIDI/Computer<br/>Keyboard] -.->|note events| VM[Voice Manager]
     VM --> VP[Voice Pool<br/>Up to 8 Voices]
 
-    VP --> V1[Voice 1<br/>3 Oscillators<br/>3 Envelopes]
-    VP --> V2[Voice 2<br/>3 Oscillators<br/>3 Envelopes]
-    VP --> V3[Voice N...<br/>3 Oscillators<br/>3 Envelopes]
+    VP --> V1[Voice 1<br/>3 Oscillators<br/>1 Envelope]
+    VP --> V2[Voice 2<br/>3 Oscillators<br/>1 Envelope]
+    VP --> V3[Voice N...<br/>3 Oscillators<br/>1 Envelope]
 
-    V1 --> MIX[Mixer<br/>Sum All Voices]
+    NOISE[Noise Generator<br/>White/Pink/Brown<br/>1 Envelope] --> MIX
+
+    V1 --> MIX[Mixer<br/>Sum All Voices + Noise]
     V2 --> MIX
     V3 --> MIX
 
-    MIX --> FILT[Low-Pass Filter<br/>Cutoff + Resonance]
+    MIX --> FILT[Low-Pass Filter<br/>Cutoff + Resonance<br/>Stable Q≤15]
     FILT --> OUT[Audio Output<br/>Stereo 44.1kHz]
 
     UI[UI Controls] -.->|voice mode| VM
     UI -.->|waveforms| VP
     UI -.->|detune/octave| VP
     UI -.->|ADSR params| VP
+    UI -.->|noise on/type/gain| NOISE
     UI -.->|gain| MIX
     UI -.->|cutoff/resonance| FILT
 
@@ -284,7 +310,7 @@ sequenceDiagram
     participant INPUT as MIDI/Keyboard Input
     participant UI as User Interface
     participant VM as Voice Manager
-    participant VOICE as Voice (with 3 OSC + 3 ENV)
+    participant VOICE as Voice (with 3 OSC + 1 ENV)
     participant FILT as Low-Pass Filter
     participant OUT as Audio Output
 
@@ -308,11 +334,12 @@ sequenceDiagram
     loop Every Audio Buffer
         VOICE->>VOICE: Generate 3 waveforms (sine/saw/square)
         VOICE->>VOICE: Apply detune + octave offsets
-        VOICE->>VOICE: Process 3 ADSR envelopes
         VOICE->>VOICE: Mix 3 oscillators with gain
+        VOICE->>VOICE: Apply single ADSR envelope to mixed signal
         VOICE->>VM: Return voice audio
         VM->>VM: Sum all active voices
-        VM->>FILT: Apply low-pass filter
+        VM->>VM: Add noise generator (if enabled, with envelope)
+        VM->>FILT: Apply low-pass filter (stable biquad, Q≤15)
         FILT->>OUT: Output stereo audio
     end
 
@@ -329,26 +356,35 @@ sequenceDiagram
 - Pre-allocated voice pool (up to 8 voices)
 - Voice stealing with LRU (Least Recently Used) algorithm
 - Three voice modes: MONO (1 voice), POLY (8 voices), UNI (8 detuned voices)
-- Each voice has independent oscillators, envelopes, and phase accumulators
+- Each voice has independent oscillators and phase accumulators
+- **Post-Mixer Envelope Architecture**: Single envelope applied after oscillator mixing for efficiency
 
 **Oscillator**
 - Generates waveforms using phase accumulation
 - Maintains phase continuity across frequency changes
-- Supports sine, sawtooth, and square waveforms
+- Supports sine, sawtooth, and square waveforms with PWM
 - Independent per-voice oscillators for true polyphony
+- Three oscillators per voice, mixed before envelope application
 
 **ADSR Envelope**
 - State machine with 5 phases: idle, attack, decay, sustain, release
 - Linear interpolation between envelope stages
-- Independent envelope per oscillator (3 per voice)
+- **Single envelope per voice** applied post-mixer (efficient architecture matching analog synths)
 - Real-time parameter updates affect all active voices
 - Proper release phase management for natural note decay
 
+**Noise Generator**
+- Paul Kellet's pink noise algorithm for 1/f spectrum
+- Brownian noise via integration for warm, bass-heavy texture
+- Independent envelope synchronized with oscillator ADSR
+- Behaves as 4th oscillator with chromatic/drone mode support
+
 **Low-Pass Filter**
-- Biquad (2-pole) IIR filter design
-- Adjustable cutoff frequency and resonance (Q factor)
-- Stable and efficient implementation
-- Applied globally after voice mixing
+- Biquad (2-pole) IIR filter design with resonance
+- Adjustable cutoff frequency (20-5000 Hz) and resonance (Q 0.707-15)
+- **Stability protection**: Conservative Q limiting prevents self-oscillation
+- **Artifact-free operation**: Proper state management eliminates crackling
+- Applied globally after voice and noise mixing
 
 ## Project Structure
 
@@ -388,6 +424,9 @@ This project started as a simple sine wave generator and evolved into a full sub
 11. **Polyphony & Unison**: Added computer keyboard input, voice modes (MONO/POLY/UNI), per-voice envelopes, and intelligent voice management
 12. **Two-Row Layout**: Redesigned UI with horizontal sections for better screen utilization and JUNO-106 style vertical sliders for ADSR
 13. **LFO Mix Controls**: Implemented dual-slider interface with depth and dry/wet controls for all 10 modulation targets
+14. **Noise Generator**: Added white/pink/brown noise as independent 4th oscillator with envelope integration
+15. **Architecture Refactoring**: Migrated from per-oscillator envelopes to single post-mixer envelope (3x efficiency improvement)
+16. **Filter Stability**: Implemented advanced biquad filter with Q limiting, state protection, and artifact-free parameter sweeping
 
 ## Roadmap
 
