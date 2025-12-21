@@ -520,6 +520,9 @@ class SineWaveGenerator(QMainWindow):
         self.voice_pool = []  # Will be created in init_ui
         self.active_voices = {}  # {note_number: [voice1, voice2, ...]}
 
+        # Playback mode (chromatic vs drone)
+        self.playback_mode = 'chromatic'  # 'chromatic' or 'drone'
+
         # Logarithmic scale parameters
         self.min_freq = 20.0
         self.max_freq = 5000.0
@@ -546,7 +549,7 @@ class SineWaveGenerator(QMainWindow):
         """Initialize the user interface"""
         self.setWindowTitle("Triple Oscillator Synth")
         self.setMinimumSize(1000, 900)
-        self.resize(1000, 900)
+        self.resize(1200, 900)
 
         # Create central widget and main layout
         central_widget = QWidget()
@@ -654,6 +657,62 @@ class SineWaveGenerator(QMainWindow):
 
         midi_layout.addSpacing(20)
 
+        # PLAYBACK MODE CONTROLS (Chromatic vs Drone)
+        playback_label = QLabel("PLAY:")
+        playback_label.setFont(QFont("Arial", 10, QFont.Bold))
+        midi_layout.addWidget(playback_label)
+
+        # Chromatic button
+        self.chromatic_button = QPushButton("CHROM")
+        self.chromatic_button.setFont(QFont("Arial", 9))
+        self.chromatic_button.setFixedSize(60, 35)
+        self.chromatic_button.setCheckable(True)
+        self.chromatic_button.setChecked(True)
+        self.chromatic_button.clicked.connect(lambda: self.set_playback_mode('chromatic'))
+        self.chromatic_button.setStyleSheet("""
+            QPushButton {
+                background-color: #555555;
+                color: white;
+                border: 2px solid #888888;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #666666;
+            }
+            QPushButton:checked {
+                background-color: #6eb5ff;
+                color: black;
+                border: 2px solid #004a99;
+            }
+        """)
+        midi_layout.addWidget(self.chromatic_button)
+
+        # Drone button
+        self.drone_button = QPushButton("DRONE")
+        self.drone_button.setFont(QFont("Arial", 9))
+        self.drone_button.setFixedSize(60, 35)
+        self.drone_button.setCheckable(True)
+        self.drone_button.clicked.connect(lambda: self.set_playback_mode('drone'))
+        self.drone_button.setStyleSheet("""
+            QPushButton {
+                background-color: #555555;
+                color: white;
+                border: 2px solid #888888;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #666666;
+            }
+            QPushButton:checked {
+                background-color: #c77dff;
+                color: black;
+                border: 2px solid #5a189a;
+            }
+        """)
+        midi_layout.addWidget(self.drone_button)
+
+        midi_layout.addSpacing(20)
+
         # Power button
         self.power_button = QPushButton("POWER ON")
         self.power_button.setFont(QFont("Arial", 11, QFont.Bold))
@@ -745,7 +804,32 @@ class SineWaveGenerator(QMainWindow):
 
         preset_browser_layout.addLayout(preset_nav_layout)
 
-        # Bottom row: Save Preset button
+        # Bottom row: Load and Save buttons
+        preset_buttons_layout = QHBoxLayout()
+        preset_buttons_layout.setSpacing(5)
+
+        # Load Preset button
+        self.load_preset_button = QPushButton("Load Preset")
+        self.load_preset_button.setFont(QFont("Arial", 9))
+        self.load_preset_button.setFixedHeight(25)
+        self.load_preset_button.setStyleSheet("""
+            QPushButton {
+                background-color: #166534;
+                color: white;
+                border: 2px solid #22c55e;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #15803d;
+            }
+            QPushButton:pressed {
+                background-color: #14532d;
+            }
+        """)
+        self.load_preset_button.clicked.connect(self.load_preset)
+        preset_buttons_layout.addWidget(self.load_preset_button)
+
+        # Save Preset button
         self.save_preset_button = QPushButton("Save Preset")
         self.save_preset_button.setFont(QFont("Arial", 9))
         self.save_preset_button.setFixedHeight(25)
@@ -764,7 +848,9 @@ class SineWaveGenerator(QMainWindow):
             }
         """)
         self.save_preset_button.clicked.connect(self.save_preset)
-        preset_browser_layout.addWidget(self.save_preset_button)
+        preset_buttons_layout.addWidget(self.save_preset_button)
+
+        preset_browser_layout.addLayout(preset_buttons_layout)
 
         midi_layout.addLayout(preset_browser_layout)
 
@@ -1007,7 +1093,7 @@ class SineWaveGenerator(QMainWindow):
         layout.addLayout(knob_layout)
 
         # Frequency display
-        freq_label = QLabel("440.0 Hz")
+        freq_label = QLabel("+0.0 cents")
         freq_label.setAlignment(Qt.AlignCenter)
         freq_label.setFont(QFont("Arial", 10, QFont.Bold))
 
@@ -1071,14 +1157,20 @@ class SineWaveGenerator(QMainWindow):
         # Connect buttons and store references
         if osc_num == 1:
             self.octave1_label = octave_label
+            self.osc1_octave_down_btn = octave_down_btn
+            self.osc1_octave_up_btn = octave_up_btn
             octave_down_btn.clicked.connect(lambda: self.change_octave(1, -1))
             octave_up_btn.clicked.connect(lambda: self.change_octave(1, 1))
         elif osc_num == 2:
             self.octave2_label = octave_label
+            self.osc2_octave_down_btn = octave_down_btn
+            self.osc2_octave_up_btn = octave_up_btn
             octave_down_btn.clicked.connect(lambda: self.change_octave(2, -1))
             octave_up_btn.clicked.connect(lambda: self.change_octave(2, 1))
         else:
             self.octave3_label = octave_label
+            self.osc3_octave_down_btn = octave_down_btn
+            self.osc3_octave_up_btn = octave_up_btn
             octave_down_btn.clicked.connect(lambda: self.change_octave(3, -1))
             octave_up_btn.clicked.connect(lambda: self.change_octave(3, 1))
 
@@ -1757,9 +1849,9 @@ class SineWaveGenerator(QMainWindow):
                 self.freq3 = self.apply_octave(base_freq, self.octave3)
 
     def update_frequency(self, osc_num, value):
-        """Update frequency from knob - acts as detune in MIDI mode, frequency in drone mode"""
-        if self.midi_handler.running:
-            # MIDI mode: knob controls detune in cents (-100 to +100)
+        """Update frequency from knob - acts as detune in chromatic mode, frequency in drone mode"""
+        if self.playback_mode == 'chromatic':
+            # Chromatic mode: knob controls detune in cents (-100 to +100)
             # Map 0-100 slider to -100 to +100 cents
             detune_cents = (float(value) / 100.0) * 200.0 - 100.0
 
@@ -1790,7 +1882,6 @@ class SineWaveGenerator(QMainWindow):
             frequency = 10 ** log_freq
 
             if osc_num == 1:
-                # Apply octave offset in drone mode too
                 self.freq1 = self.apply_octave(frequency, self.octave1)
                 self.freq1_label.setText(f"{self.freq1:.1f} Hz")
             elif osc_num == 2:
@@ -1952,6 +2043,7 @@ class SineWaveGenerator(QMainWindow):
                 }
             },
             "voice_mode": voice_mode,
+            "playback_mode": self.playback_mode,
             "envelope": {
                 "attack": self.env1.attack,
                 "decay": self.env1.decay,
@@ -2091,6 +2183,10 @@ class SineWaveGenerator(QMainWindow):
 
             # Voice mode (default "Mono" if missing for backward compatibility)
             voice_mode = preset.get("voice_mode", "Mono")
+
+            # Playback mode (default "chromatic" if missing for backward compatibility)
+            playback_mode = preset.get("playback_mode", "chromatic")
+            self.set_playback_mode(playback_mode)
 
             # LFO settings
             lfo = preset.get("lfo", {})
@@ -2269,6 +2365,10 @@ class SineWaveGenerator(QMainWindow):
 
             # Voice mode (default "Mono" if missing for backward compatibility)
             voice_mode = preset.get("voice_mode", "Mono")
+
+            # Playback mode (default "chromatic" if missing for backward compatibility)
+            playback_mode = preset.get("playback_mode", "chromatic")
+            self.set_playback_mode(playback_mode)
 
             # LFO settings
             lfo = preset.get("lfo", {})
@@ -2565,36 +2665,7 @@ class SineWaveGenerator(QMainWindow):
             """)
 
         # Update power button
-        if self.power_on:
-            self.power_button.setText("ON")
-            self.power_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #fc5b42;
-                    color: white;
-                    border: none;
-                    border-radius: 5px;
-                    padding: 5px 15px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #fc5b42;
-                }
-            """)
-        else:
-            self.power_button.setText("OFF")
-            self.power_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #f44336;
-                    color: white;
-                    border: none;
-                    border-radius: 5px;
-                    padding: 5px 15px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #da190b;
-                }
-            """)
+        self.update_power_button()
 
     def reallocate_voice_pool(self):
         """Create voice pool based on max_polyphony and unison_count"""
@@ -2747,8 +2818,12 @@ class SineWaveGenerator(QMainWindow):
 
             # Oscillator 1
             if self.osc1_on:
-                # Apply oscillator-specific detune and octave
-                freq1 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune1), self.octave1)
+                # In drone mode, use absolute frequency; in chromatic mode, use MIDI note + detune
+                if self.playback_mode == 'drone':
+                    freq1 = self.freq1
+                else:
+                    # Apply oscillator-specific detune and octave
+                    freq1 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune1), self.octave1)
 
                 # Apply pitch modulation (vibrato) - use mean for phase increment calculation
                 freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc1_pitch * self.lfo_to_osc1_pitch_mix)
@@ -2774,8 +2849,12 @@ class SineWaveGenerator(QMainWindow):
 
             # Oscillator 2
             if self.osc2_on:
-                # Apply oscillator-specific detune and octave
-                freq2 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune2), self.octave2)
+                # In drone mode, use absolute frequency; in chromatic mode, use MIDI note + detune
+                if self.playback_mode == 'drone':
+                    freq2 = self.freq2
+                else:
+                    # Apply oscillator-specific detune and octave
+                    freq2 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune2), self.octave2)
 
                 # Apply pitch modulation - use mean for phase increment calculation
                 freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc2_pitch * self.lfo_to_osc2_pitch_mix)
@@ -2801,8 +2880,12 @@ class SineWaveGenerator(QMainWindow):
 
             # Oscillator 3
             if self.osc3_on:
-                # Apply oscillator-specific detune and octave
-                freq3 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune3), self.octave3)
+                # In drone mode, use absolute frequency; in chromatic mode, use MIDI note + detune
+                if self.playback_mode == 'drone':
+                    freq3 = self.freq3
+                else:
+                    # Apply oscillator-specific detune and octave
+                    freq3 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune3), self.octave3)
 
                 # Apply pitch modulation - use mean for phase increment calculation
                 freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc3_pitch * self.lfo_to_osc3_pitch_mix)
@@ -2917,13 +3000,22 @@ class SineWaveGenerator(QMainWindow):
                 }
             """)
 
+        # In drone mode, trigger/release a MIDI note when oscillator is toggled
+        if self.playback_mode == 'drone':
+            # Use MIDI note 69 (A440) as the base note for drone mode
+            # The frequency will be determined by the oscillator knobs
+            if is_on:
+                # Trigger note on
+                self.handle_midi_note_on(69, 100)
+            else:
+                # Trigger note off
+                self.handle_midi_note_off(69)
+
         # Manage audio stream
         self.manage_audio_stream()
 
-    def toggle_power(self):
-        """Toggle master power on/off"""
-        self.power_on = not self.power_on
-
+    def update_power_button(self):
+        """Update power button appearance based on current power state"""
         if self.power_on:
             self.power_button.setText("POWER ON")
             self.power_button.setStyleSheet("""
@@ -2957,6 +3049,11 @@ class SineWaveGenerator(QMainWindow):
                 }
             """)
 
+    def toggle_power(self):
+        """Toggle master power on/off"""
+        self.power_on = not self.power_on
+        self.update_power_button()
+
     def set_voice_mode(self, mode):
         """Set voice mode: 'mono', 'poly', or 'unison'"""
         # Update button states
@@ -2980,6 +3077,38 @@ class SineWaveGenerator(QMainWindow):
 
         # Reallocate voice pool
         self.reallocate_voice_pool()
+
+    def set_playback_mode(self, mode):
+        """Set playback mode: 'chromatic' or 'drone'"""
+        self.playback_mode = mode
+
+        # Update button states
+        self.chromatic_button.setChecked(mode == 'chromatic')
+        self.drone_button.setChecked(mode == 'drone')
+
+        # Enable/disable octave step buttons based on mode
+        octave_buttons_enabled = (mode == 'chromatic')
+        self.osc1_octave_down_btn.setEnabled(octave_buttons_enabled)
+        self.osc1_octave_up_btn.setEnabled(octave_buttons_enabled)
+        self.osc2_octave_down_btn.setEnabled(octave_buttons_enabled)
+        self.osc2_octave_up_btn.setEnabled(octave_buttons_enabled)
+        self.osc3_octave_down_btn.setEnabled(octave_buttons_enabled)
+        self.osc3_octave_up_btn.setEnabled(octave_buttons_enabled)
+
+        # Update frequency knob displays based on mode
+        if mode == 'chromatic':
+            # Set knobs to center (0 cents) and update labels
+            center_value = 50
+            self.freq1_knob.setValue(center_value)
+            self.freq2_knob.setValue(center_value)
+            self.freq3_knob.setValue(center_value)
+            # Labels will be updated by update_frequency callbacks
+        else:
+            # Drone mode: set knobs to minimum and update labels
+            self.freq1_knob.setValue(0)
+            self.freq2_knob.setValue(0)
+            self.freq3_knob.setValue(0)
+            # Labels will be updated by update_frequency callbacks
 
     def manage_audio_stream(self):
         """Start or stop audio stream based on oscillator states"""
@@ -3033,14 +3162,12 @@ class SineWaveGenerator(QMainWindow):
                 # Labels will be updated by update_frequency callbacks
         else:
             self.midi_handler.stop()
-            # Switch to drone mode: reset knobs to 0 (minimum frequency)
-            self.freq1_knob.setValue(0)
-            self.freq2_knob.setValue(0)
-            self.freq3_knob.setValue(0)
-            # Update labels to show frequency (will be updated by update_frequency callbacks)
-            self.freq1_label.setText(f"{self.freq1:.1f} Hz")
-            self.freq2_label.setText(f"{self.freq2:.1f} Hz")
-            self.freq3_label.setText(f"{self.freq3:.1f} Hz")
+            # Chromatic mode with computer keyboard: set knobs to center (0 cents)
+            center_value = 50  # Middle of 0-100 range = 0 cents
+            self.freq1_knob.setValue(center_value)
+            self.freq2_knob.setValue(center_value)
+            self.freq3_knob.setValue(center_value)
+            # Labels will be updated by update_frequency callbacks
 
     def midi_note_to_freq(self, note):
         """Convert MIDI note number to frequency"""

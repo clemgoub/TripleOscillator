@@ -30,14 +30,17 @@ I strongly discourage using the code in this repository for the purpose of train
   - Independent PWM control per oscillator
   - Real-time modulation for classic analog synthesizer sounds
 - **Frequency Range**: 20 Hz to 5000 Hz (logarithmic scale)
-- **Dual-Mode Frequency Controls**:
-  - Drone mode (no MIDI): Absolute frequency control (20Hz-5kHz)
-  - MIDI mode: Detune control (-100 to +100 cents)
-- **Octave Switches**: Independent octave controls per oscillator (-3 to +3 octaves)
+- **Dual Playback Modes**:
+  - **Chromatic Mode** (default): Frequency knobs control detune in cents (-100 to +100), play notes via MIDI/computer keyboard
+  - **Drone Mode**: Frequency knobs control absolute frequency (20Hz-5kHz), oscillator ON buttons trigger sound
+- **Octave Switches**: Independent octave controls per oscillator (-3 to +3 octaves, disabled in drone mode)
 - **Real-time Frequency Adjustment**: Smooth frequency changes without clicks
 - **Individual On/Off Controls**: Per-oscillator activation with visual feedback
 
 ### Voice Modes & Polyphony
+- **2 Playback Modes**: CHROM (chromatic) / DRONE mode switch
+  - **CHROM**: Note-based playback with detune controls in cents
+  - **DRONE**: Continuous tone generation with absolute frequency controls
 - **3 Voice Modes**: Simple one-click mode selection
   - **MONO**: Monophonic - Single voice, classic synth behavior
   - **POLY**: Polyphonic - Up to 8 simultaneous voices
@@ -49,7 +52,7 @@ I strongly discourage using the code in this repository for the purpose of train
 
 ### MIDI Support
 - **MIDI Keyboard Input**: Play notes with any MIDI keyboard
-- **Automatic Mode Switching**: Frequency knobs become detune controls in MIDI mode
+- **Chromatic Mode Integration**: Works seamlessly with MIDI or computer keyboard input
 - **Octave Layering**: Combine oscillators at different octaves for rich harmonic textures
 
 ### Mixer
@@ -91,7 +94,7 @@ I strongly discourage using the code in this repository for the purpose of train
 - **Load Presets**: Recall saved settings instantly
 - **Forward Compatible**: Old presets work with new features via smart defaults
 - **Human Readable**: JSON format allows manual editing
-- **Complete State**: Saves oscillators, envelope, filter, and master settings
+- **Complete State**: Saves oscillators, envelope, filter, voice mode, playback mode, and master settings
 
 ### Audio Engine
 - **44.1 kHz Sample Rate**: CD-quality audio
