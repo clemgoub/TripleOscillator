@@ -76,8 +76,13 @@ I strongly discourage using the code in this repository for the purpose of train
 
 ### LFO (Low-Frequency Oscillator)
 - **3 Waveforms**: Sine, Triangle, Square for different modulation shapes
-- **Sync Modes**: Free-running or tempo-synced (1/4, 1/2, 1, 2, 4 bars)
-- **Frequency Range**: 0.1-20 Hz for slow sweeps to fast tremolo
+- **Dual Sync Modes**:
+  - **Free Mode**: Manual Hz control (0.1-20 Hz)
+  - **Sync Mode**: Tempo-synced divisions (1/16, 1/8, 1/4, 1/2, 1/1, 2/1, 4/1)
+- **MIDI Clock Integration**: Automatic BPM detection from MIDI clock messages
+  - BPM knob disabled in Sync mode (controlled by MIDI tempo)
+  - Real-time tempo tracking from DAW/sequencer
+  - Smooth BPM averaging for stable sync
 - **10 Modulation Targets**: Comprehensive routing matrix
   - **Pitch** (Osc 1, 2, 3): Vibrato and frequency modulation
   - **Pulse Width** (Osc 1, 2, 3): Dynamic timbral movement

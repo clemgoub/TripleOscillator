@@ -31,12 +31,17 @@ class MIDIHandler(QObject):
     """Handles MIDI input in a separate thread"""
     note_on = pyqtSignal(int, int)  # note, velocity
     note_off = pyqtSignal(int)      # note
+    bpm_changed = pyqtSignal(float)  # BPM from MIDI clock
 
     def __init__(self):
         super().__init__()
         self.port = None
         self.running = False
         self.thread = None
+        # MIDI clock timing (24 pulses per quarter note)
+        self.last_clock_time = None
+        self.clock_intervals = []  # Store recent intervals for averaging
+        self.clock_count = 0
 
     def start(self, port_name):
         """Start MIDI input from specified port"""
@@ -69,11 +74,43 @@ class MIDIHandler(QObject):
                         self.note_on.emit(msg.note, msg.velocity)
                     elif msg.type == 'note_off' or (msg.type == 'note_on' and msg.velocity == 0):
                         self.note_off.emit(msg.note)
+                    elif msg.type == 'clock':
+                        # MIDI clock: 24 pulses per quarter note
+                        self._process_midi_clock()
                 # Sleep briefly to avoid hogging CPU and causing audio dropouts
                 time.sleep(0.001)  # 1ms - plenty fast for MIDI input
             except Exception as e:
                 print(f"MIDI error: {e}")
                 break
+
+    def _process_midi_clock(self):
+        """Process MIDI clock message and calculate BPM"""
+        current_time = time.time()
+
+        if self.last_clock_time is not None:
+            # Calculate interval between clock pulses
+            interval = current_time - self.last_clock_time
+
+            # Store recent intervals (keep last 24 for smoothing - one quarter note worth)
+            self.clock_intervals.append(interval)
+            if len(self.clock_intervals) > 24:
+                self.clock_intervals.pop(0)
+
+            # Calculate BPM every 24 clocks (one quarter note)
+            self.clock_count += 1
+            if self.clock_count >= 24 and len(self.clock_intervals) >= 24:
+                # Average interval between clocks
+                avg_interval = sum(self.clock_intervals) / len(self.clock_intervals)
+                # 24 clocks = 1 quarter note, so time for one quarter note = avg_interval * 24
+                # BPM = 60 / (time per quarter note)
+                if avg_interval > 0:
+                    bpm = 60.0 / (avg_interval * 24.0)
+                    # Clamp BPM to reasonable range
+                    bpm = max(40.0, min(240.0, bpm))
+                    self.bpm_changed.emit(bpm)
+                self.clock_count = 0
+
+        self.last_clock_time = current_time
 
 
 class EnvelopeGenerator:
@@ -294,14 +331,15 @@ class LFOGenerator:
             return self.rate_hz
         else:
             # MIDI sync mode - convert division to Hz based on BPM
+            # beats_per_cycle = how many beats for one complete LFO cycle
             divisions = {
-                "1/16": 4.0,
-                "1/8": 2.0,
-                "1/4": 1.0,
-                "1/2": 0.5,
-                "1/1": 0.25,
-                "2/1": 0.125,
-                "4/1": 0.0625
+                "1/16": 0.25,   # 1/16 note = 1 cycle per quarter beat (fast)
+                "1/8": 0.5,     # 1/8 note = 1 cycle per half beat
+                "1/4": 1.0,     # 1/4 note = 1 cycle per beat
+                "1/2": 2.0,     # 1/2 note = 1 cycle per 2 beats
+                "1/1": 4.0,     # Whole note = 1 cycle per 4 beats
+                "2/1": 8.0,     # 2 bars = 1 cycle per 8 beats
+                "4/1": 16.0     # 4 bars = 1 cycle per 16 beats (slow)
             }
             beats_per_cycle = divisions.get(self.sync_division, 1.0)
             return (self.bpm / 60.0) / beats_per_cycle
@@ -507,6 +545,7 @@ class SineWaveGenerator(QMainWindow):
         self.midi_handler = MIDIHandler()
         self.midi_handler.note_on.connect(self.handle_midi_note_on)
         self.midi_handler.note_off.connect(self.handle_midi_note_off)
+        self.midi_handler.bpm_changed.connect(self.handle_midi_bpm_change)
         self.current_note = None
 
         # Computer keyboard MIDI
@@ -1431,6 +1470,7 @@ class SineWaveGenerator(QMainWindow):
 
         self.attack_slider_value = QLabel("0ms")
         self.attack_slider_value.setAlignment(Qt.AlignCenter)
+        self.attack_slider_value.setMinimumWidth(60)
         attack_layout.addWidget(self.attack_slider_value)
 
         layout.addWidget(attack_container)
@@ -1454,6 +1494,7 @@ class SineWaveGenerator(QMainWindow):
 
         self.decay_slider_value = QLabel("100ms")
         self.decay_slider_value.setAlignment(Qt.AlignCenter)
+        self.decay_slider_value.setMinimumWidth(60)
         decay_layout.addWidget(self.decay_slider_value)
 
         layout.addWidget(decay_container)
@@ -1477,6 +1518,7 @@ class SineWaveGenerator(QMainWindow):
 
         self.sustain_slider_value = QLabel("70%")
         self.sustain_slider_value.setAlignment(Qt.AlignCenter)
+        self.sustain_slider_value.setMinimumWidth(60)
         sustain_layout.addWidget(self.sustain_slider_value)
 
         layout.addWidget(sustain_container)
@@ -1500,6 +1542,7 @@ class SineWaveGenerator(QMainWindow):
 
         self.release_slider_value = QLabel("300ms")
         self.release_slider_value.setAlignment(Qt.AlignCenter)
+        self.release_slider_value.setMinimumWidth(60)
         release_layout.addWidget(self.release_slider_value)
 
         layout.addWidget(release_container)
@@ -1597,6 +1640,8 @@ class SineWaveGenerator(QMainWindow):
         # BPM knob (only visible in Sync mode)
         self.bpm_container = self.create_knob_with_label("BPM", 40, 240, 120,
                                                           lambda v: setattr(self.lfo, 'bpm', float(v)), size=60)
+        self.bpm_knob = self.bpm_container.findChild(QDial)  # Get reference to the knob
+        self.bpm_label_value = self.bpm_container.findChild(QLabel, "value_label")  # Get reference to value label
         self.bpm_container.setVisible(False)  # Hidden by default
         lfo_controls_layout.addWidget(self.bpm_container)
 
@@ -1712,10 +1757,15 @@ class SineWaveGenerator(QMainWindow):
             self.lfo_rate_container.setVisible(True)
             self.sync_div_container.setVisible(False)
             self.bpm_container.setVisible(False)
+            if self.bpm_knob:
+                self.bpm_knob.setEnabled(True)
         else:  # Sync
             self.lfo_rate_container.setVisible(False)
             self.sync_div_container.setVisible(True)
             self.bpm_container.setVisible(True)
+            # Disable BPM knob in Sync mode - BPM comes from MIDI clock
+            if self.bpm_knob:
+                self.bpm_knob.setEnabled(False)
 
     def update_lfo_rate(self, rate_hz):
         """Update LFO rate in Hz"""
@@ -1933,47 +1983,54 @@ class SineWaveGenerator(QMainWindow):
         """Update ADSR parameters"""
         if param == 'attack':
             # Convert ms to seconds
-            self.env1.attack = value / 1000.0
-            self.env2.attack = value / 1000.0
-            self.env3.attack = value / 1000.0
-            # Also update all voice envelopes in real-time
+            attack_val = value / 1000.0
+            self.env1.attack = attack_val
+            self.env2.attack = attack_val
+            self.env3.attack = attack_val
+            # Update all voice envelopes in real-time
             for voice in self.voice_pool:
-                voice.env1.attack = value / 1000.0
-                voice.env2.attack = value / 1000.0
-                voice.env3.attack = value / 1000.0
+                voice.env1.attack = attack_val
+                voice.env2.attack = attack_val
+                voice.env3.attack = attack_val
             # Update UI label
             self.attack_slider_value.setText(f"{int(value)}ms")
         elif param == 'decay':
-            self.env1.decay = value / 1000.0
-            self.env2.decay = value / 1000.0
-            self.env3.decay = value / 1000.0
-            # Also update all voice envelopes in real-time
+            # Convert ms to seconds
+            decay_val = value / 1000.0
+            self.env1.decay = decay_val
+            self.env2.decay = decay_val
+            self.env3.decay = decay_val
+            # Update all voice envelopes in real-time
             for voice in self.voice_pool:
-                voice.env1.decay = value / 1000.0
-                voice.env2.decay = value / 1000.0
-                voice.env3.decay = value / 1000.0
+                voice.env1.decay = decay_val
+                voice.env2.decay = decay_val
+                voice.env3.decay = decay_val
             # Update UI label
             self.decay_slider_value.setText(f"{int(value)}ms")
         elif param == 'sustain':
-            self.env1.sustain = value / 100.0
-            self.env2.sustain = value / 100.0
-            self.env3.sustain = value / 100.0
-            # Also update all voice envelopes in real-time
+            # Convert percentage to 0-1
+            sustain_val = value / 100.0
+            self.env1.sustain = sustain_val
+            self.env2.sustain = sustain_val
+            self.env3.sustain = sustain_val
+            # Update all voice envelopes in real-time
             for voice in self.voice_pool:
-                voice.env1.sustain = value / 100.0
-                voice.env2.sustain = value / 100.0
-                voice.env3.sustain = value / 100.0
+                voice.env1.sustain = sustain_val
+                voice.env2.sustain = sustain_val
+                voice.env3.sustain = sustain_val
             # Update UI label
             self.sustain_slider_value.setText(f"{int(value)}%")
         elif param == 'release':
-            self.env1.release = value / 1000.0
-            self.env2.release = value / 1000.0
-            self.env3.release = value / 1000.0
-            # Also update all voice envelopes in real-time
+            # Convert ms to seconds
+            release_val = value / 1000.0
+            self.env1.release = release_val
+            self.env2.release = release_val
+            self.env3.release = release_val
+            # Update all voice envelopes in real-time
             for voice in self.voice_pool:
-                voice.env1.release = value / 1000.0
-                voice.env2.release = value / 1000.0
-                voice.env3.release = value / 1000.0
+                voice.env1.release = release_val
+                voice.env2.release = release_val
+                voice.env3.release = release_val
             # Update UI label
             self.release_slider_value.setText(f"{int(value)}ms")
 
@@ -3086,6 +3143,12 @@ class SineWaveGenerator(QMainWindow):
         self.chromatic_button.setChecked(mode == 'chromatic')
         self.drone_button.setChecked(mode == 'drone')
 
+        # Release all active voices when switching modes to prevent stuck notes
+        for voice in self.voice_pool:
+            voice.release()
+        self.active_voices = {}
+        self.current_note = None
+
         # Enable/disable octave step buttons based on mode
         octave_buttons_enabled = (mode == 'chromatic')
         self.osc1_octave_down_btn.setEnabled(octave_buttons_enabled)
@@ -3263,6 +3326,18 @@ class SineWaveGenerator(QMainWindow):
         # Update legacy current_note for backward compatibility
         if self.current_note == note:
             self.current_note = None
+
+    def handle_midi_bpm_change(self, bpm):
+        """Handle BPM changes from MIDI clock"""
+        # Update LFO BPM
+        self.lfo.bpm = bpm
+
+        # Update UI - block signals to prevent feedback
+        if self.bpm_knob and self.bpm_label_value:
+            self.bpm_knob.blockSignals(True)
+            self.bpm_knob.setValue(int(bpm))
+            self.bpm_label_value.setText(str(int(bpm)))
+            self.bpm_knob.blockSignals(False)
 
     def get_keyboard_note_mapping(self):
         """Map keyboard keys to MIDI notes (piano-style layout)"""
