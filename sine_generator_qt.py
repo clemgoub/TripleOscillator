@@ -27,6 +27,37 @@ from PyQt5.QtCore import Qt, QObject, pyqtSignal
 from PyQt5.QtGui import QFont
 
 
+# Audio Processing Constants
+# ---------------------------
+
+# Filter Constants
+Q_BUTTERWORTH = 0.707      # Butterworth filter Q (maximally flat response)
+Q_SCALE = 14.293           # Scale factor for resonance to Q mapping (15.0 - 0.707)
+Q_MIN = 0.5                # Minimum Q value for stability
+Q_MAX = 15.0               # Maximum Q value (prevents self-oscillation)
+FREQ_MIN_NORMALIZED = 0.001  # Minimum normalized frequency (cutoff/sample_rate)
+FREQ_MAX_NORMALIZED = 0.499  # Maximum normalized frequency (prevents Nyquist aliasing)
+FILTER_OUTPUT_MIN = -2.0   # Minimum filter output (prevents clipping)
+FILTER_OUTPUT_MAX = 2.0    # Maximum filter output (prevents clipping)
+FILTER_STATE_MIN = -10.0   # Minimum filter state value (prevents runaway)
+FILTER_STATE_MAX = 10.0    # Maximum filter state value (prevents runaway)
+FILTER_CUTOFF_MIN = 20.0   # Minimum filter cutoff frequency (Hz)
+FILTER_CUTOFF_MAX = 20000.0  # Maximum filter cutoff frequency (Hz)
+
+# LFO Modulation Depths
+LFO_PITCH_MOD_DEPTH = 0.05  # Pitch modulation depth (±5% frequency deviation)
+LFO_PW_MOD_DEPTH = 0.3      # Pulse width modulation depth (±30% pulse width deviation)
+LFO_FILTER_MOD_OCTAVES = 2.0  # Filter cutoff modulation range (±2 octaves)
+
+# Pulse Width Constraints
+PW_MIN = 0.01  # Minimum pulse width (prevents duty cycle issues)
+PW_MAX = 0.99  # Maximum pulse width (prevents duty cycle issues)
+
+# Volume Modulation
+VOL_MOD_MIN = 0.0  # Minimum volume modulation (silence)
+VOL_MOD_MAX = 1.0  # Maximum volume modulation (full volume)
+
+
 class MIDIHandler(QObject):
     """Handles MIDI input in a separate thread"""
     note_on = pyqtSignal(int, int)  # note, velocity
@@ -272,54 +303,60 @@ class LowPassFilter:
 
     def process(self, input_signal):
         """Apply low-pass filter with proper state preservation and stability"""
-        # Calculate filter coefficients
-        freq = np.clip(self.cutoff / self.sample_rate, 0.001, 0.499)  # Prevent Nyquist issues
+        # Only recalculate coefficients if cutoff or resonance changed (performance optimization)
+        if self.last_cutoff != self.cutoff or self.last_resonance != self.resonance:
+            # Calculate filter coefficients
+            freq = np.clip(self.cutoff / self.sample_rate, FREQ_MIN_NORMALIZED, FREQ_MAX_NORMALIZED)
 
-        # Conservative Q limiting to prevent instability and self-oscillation
-        # Map 0-1 resonance to Q range 0.707-15 (instead of 1-30)
-        # Q=0.707 is Butterworth (maximally flat), higher Q adds resonance
-        q = 0.707 + self.resonance * 14.293  # Max Q of 15
-        q = np.clip(q, 0.5, 15.0)  # Hard limit for stability
+            # Conservative Q limiting to prevent instability and self-oscillation
+            # Map 0-1 resonance to Q range Q_BUTTERWORTH to Q_MAX
+            # Q=Q_BUTTERWORTH is Butterworth (maximally flat), higher Q adds resonance
+            q = Q_BUTTERWORTH + self.resonance * Q_SCALE
+            q = np.clip(q, Q_MIN, Q_MAX)  # Hard limit for stability
 
-        omega = 2.0 * np.pi * freq
-        sn = np.sin(omega)
-        cs = np.cos(omega)
-        alpha = sn / (2.0 * q)
+            omega = 2.0 * np.pi * freq
+            sn = np.sin(omega)
+            cs = np.cos(omega)
+            alpha = sn / (2.0 * q)
 
-        a0 = 1.0 + alpha
-        a1 = -2.0 * cs
-        a2 = 1.0 - alpha
-        b0 = (1.0 - cs) / 2.0
-        b1 = 1.0 - cs
-        b2 = (1.0 - cs) / 2.0
+            a0 = 1.0 + alpha
+            a1 = -2.0 * cs
+            a2 = 1.0 - alpha
+            b0 = (1.0 - cs) / 2.0
+            b1 = 1.0 - cs
+            b2 = (1.0 - cs) / 2.0
 
-        # Normalize
-        a1 /= a0
-        a2 /= a0
-        b0 /= a0
-        b1 /= a0
-        b2 /= a0
+            # Normalize
+            a1 /= a0
+            a2 /= a0
+            b0 /= a0
+            b1 /= a0
+            b2 /= a0
 
-        # Build coefficient arrays
-        b = [b0, b1, b2]
-        a = [1.0, a1, a2]
+            # Build and cache coefficient arrays
+            self.b = [b0, b1, b2]
+            self.a = [1.0, a1, a2]
+
+            # Update cached parameter values
+            self.last_cutoff = self.cutoff
+            self.last_resonance = self.resonance
 
         # Initialize state only on first run
         if self.zi is None:
-            self.zi = scipy_signal.lfilter_zi(b, a) * input_signal[0]
+            self.zi = scipy_signal.lfilter_zi(self.b, self.a) * input_signal[0]
 
-        # Apply filter with state preservation
-        output, self.zi = scipy_signal.lfilter(b, a, input_signal, zi=self.zi)
+        # Apply filter with state preservation using cached coefficients
+        output, self.zi = scipy_signal.lfilter(self.b, self.a, input_signal, zi=self.zi)
 
         # Aggressive output clamping to prevent filter blowup
-        output = np.clip(output, -2.0, 2.0)
+        output = np.clip(output, FILTER_OUTPUT_MIN, FILTER_OUTPUT_MAX)
 
         # Clamp filter state to prevent runaway values (tighter bounds)
-        self.zi = np.clip(self.zi, -10.0, 10.0)
+        self.zi = np.clip(self.zi, FILTER_STATE_MIN, FILTER_STATE_MAX)
 
         # Check for NaN or Inf and reset if found (safety)
         if np.any(np.isnan(self.zi)) or np.any(np.isinf(self.zi)):
-            self.zi = scipy_signal.lfilter_zi(b, a) * 0.0
+            self.zi = scipy_signal.lfilter_zi(self.b, self.a) * 0.0
 
         return output
 
@@ -599,6 +636,7 @@ class SineWaveGenerator(QMainWindow):
 
         # Filter
         self.filter = LowPassFilter(self.sample_rate)
+        self.filter_cutoff_base = 5000.0  # Store the "dry" cutoff from knob (not modulated)
 
         # LFO
         self.lfo = LFOGenerator(self.sample_rate)
@@ -2189,7 +2227,12 @@ class SineWaveGenerator(QMainWindow):
     def update_filter(self, param, value):
         """Update filter parameters"""
         if param == 'cutoff':
-            self.filter.cutoff = float(value)
+            # Store the base "dry" cutoff value from knob
+            self.filter_cutoff_base = float(value)
+            # Only update filter.cutoff if no LFO modulation active
+            # (otherwise it will be set in audio callback)
+            if self.lfo_to_filter_cutoff == 0:
+                self.filter.cutoff = self.filter_cutoff_base
         elif param == 'resonance':
             self.filter.resonance = value / 100.0
 
@@ -2383,7 +2426,8 @@ class SineWaveGenerator(QMainWindow):
 
             # Filter settings
             filt = preset.get("filter", {})
-            self.filter.cutoff = filt.get("cutoff", 5000.0)
+            self.filter_cutoff_base = filt.get("cutoff", 5000.0)
+            self.filter.cutoff = self.filter_cutoff_base  # Set both base and actual
             self.filter.resonance = filt.get("resonance", 0.0)
 
             # Master settings
@@ -2567,7 +2611,8 @@ class SineWaveGenerator(QMainWindow):
 
             # Filter settings
             filt = preset.get("filter", {})
-            self.filter.cutoff = filt.get("cutoff", 5000.0)
+            self.filter_cutoff_base = filt.get("cutoff", 5000.0)
+            self.filter.cutoff = self.filter_cutoff_base  # Set both base and actual
             self.filter.resonance = filt.get("resonance", 0.0)
 
             # Master settings
@@ -3000,6 +3045,10 @@ class SineWaveGenerator(QMainWindow):
         # Generate LFO signal (-1 to 1)
         lfo_signal = self.lfo.process(frames)
 
+        # Cache LFO mean value (used for pitch, PW, and filter modulation)
+        # This avoids recalculating np.mean() 7 times per callback
+        lfo_mean = np.mean(lfo_signal)
+
         # Create empty mixed output
         mixed = np.zeros(frames)
 
@@ -3040,21 +3089,21 @@ class SineWaveGenerator(QMainWindow):
                     # Apply oscillator-specific detune and octave
                     freq1 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune1), self.octave1)
 
-                # Apply pitch modulation (vibrato) - use mean for phase increment calculation
-                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc1_pitch * self.lfo_to_osc1_pitch_mix)
+                # Apply pitch modulation (vibrato) - use cached mean for phase increment calculation
+                freq_mod_scalar = 1.0 + (lfo_mean * LFO_PITCH_MOD_DEPTH * self.lfo_to_osc1_pitch * self.lfo_to_osc1_pitch_mix)
                 modulated_freq1 = freq1 * freq_mod_scalar
                 phase_increment1 = 2 * np.pi * modulated_freq1 / self.sample_rate
 
-                # Apply pulse width modulation - use mean for pw calculation
-                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc1_pw * self.lfo_to_osc1_pw_mix
-                modulated_pw1 = np.clip(self.pulse_width1 + pw_mod, 0.01, 0.99)
+                # Apply pulse width modulation - use cached mean for pw calculation
+                pw_mod = lfo_mean * LFO_PW_MOD_DEPTH * self.lfo_to_osc1_pw * self.lfo_to_osc1_pw_mix
+                modulated_pw1 = np.clip(self.pulse_width1 + pw_mod, PW_MIN, PW_MAX)
 
                 # Generate waveform using voice's phase
                 wave1 = self.generate_waveform(self.waveform1, voice.phase1, phase_increment1, frames, modulated_pw1)
 
                 # Apply volume modulation (tremolo) - apply as array
                 vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc1_volume * self.lfo_to_osc1_volume_mix)
-                modulated_gain1 = self.gain1 * np.clip(vol_mod, 0.0, 1.0)
+                modulated_gain1 = self.gain1 * np.clip(vol_mod, VOL_MOD_MIN, VOL_MOD_MAX)
 
                 voice_mix += modulated_gain1 * wave1  # NO envelope yet
 
@@ -3070,21 +3119,21 @@ class SineWaveGenerator(QMainWindow):
                     # Apply oscillator-specific detune and octave
                     freq2 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune2), self.octave2)
 
-                # Apply pitch modulation - use mean for phase increment calculation
-                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc2_pitch * self.lfo_to_osc2_pitch_mix)
+                # Apply pitch modulation - use cached mean for phase increment calculation
+                freq_mod_scalar = 1.0 + (lfo_mean * LFO_PITCH_MOD_DEPTH * self.lfo_to_osc2_pitch * self.lfo_to_osc2_pitch_mix)
                 modulated_freq2 = freq2 * freq_mod_scalar
                 phase_increment2 = 2 * np.pi * modulated_freq2 / self.sample_rate
 
-                # Apply pulse width modulation - use mean for pw calculation
-                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc2_pw * self.lfo_to_osc2_pw_mix
-                modulated_pw2 = np.clip(self.pulse_width2 + pw_mod, 0.01, 0.99)
+                # Apply pulse width modulation - use cached mean for pw calculation
+                pw_mod = lfo_mean * LFO_PW_MOD_DEPTH * self.lfo_to_osc2_pw * self.lfo_to_osc2_pw_mix
+                modulated_pw2 = np.clip(self.pulse_width2 + pw_mod, PW_MIN, PW_MAX)
 
                 # Generate waveform using voice's phase
                 wave2 = self.generate_waveform(self.waveform2, voice.phase2, phase_increment2, frames, modulated_pw2)
 
                 # Apply volume modulation - apply as array
                 vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc2_volume * self.lfo_to_osc2_volume_mix)
-                modulated_gain2 = self.gain2 * np.clip(vol_mod, 0.0, 1.0)
+                modulated_gain2 = self.gain2 * np.clip(vol_mod, VOL_MOD_MIN, VOL_MOD_MAX)
 
                 voice_mix += modulated_gain2 * wave2  # NO envelope yet
 
@@ -3100,21 +3149,21 @@ class SineWaveGenerator(QMainWindow):
                     # Apply oscillator-specific detune and octave
                     freq3 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune3), self.octave3)
 
-                # Apply pitch modulation - use mean for phase increment calculation
-                freq_mod_scalar = 1.0 + (np.mean(lfo_signal) * 0.05 * self.lfo_to_osc3_pitch * self.lfo_to_osc3_pitch_mix)
+                # Apply pitch modulation - use cached mean for phase increment calculation
+                freq_mod_scalar = 1.0 + (lfo_mean * LFO_PITCH_MOD_DEPTH * self.lfo_to_osc3_pitch * self.lfo_to_osc3_pitch_mix)
                 modulated_freq3 = freq3 * freq_mod_scalar
                 phase_increment3 = 2 * np.pi * modulated_freq3 / self.sample_rate
 
-                # Apply pulse width modulation - use mean for pw calculation
-                pw_mod = np.mean(lfo_signal) * 0.3 * self.lfo_to_osc3_pw * self.lfo_to_osc3_pw_mix
-                modulated_pw3 = np.clip(self.pulse_width3 + pw_mod, 0.01, 0.99)
+                # Apply pulse width modulation - use cached mean for pw calculation
+                pw_mod = lfo_mean * LFO_PW_MOD_DEPTH * self.lfo_to_osc3_pw * self.lfo_to_osc3_pw_mix
+                modulated_pw3 = np.clip(self.pulse_width3 + pw_mod, PW_MIN, PW_MAX)
 
                 # Generate waveform using voice's phase
                 wave3 = self.generate_waveform(self.waveform3, voice.phase3, phase_increment3, frames, modulated_pw3)
 
                 # Apply volume modulation - apply as array
                 vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc3_volume * self.lfo_to_osc3_volume_mix)
-                modulated_gain3 = self.gain3 * np.clip(vol_mod, 0.0, 1.0)
+                modulated_gain3 = self.gain3 * np.clip(vol_mod, VOL_MOD_MIN, VOL_MOD_MAX)
 
                 voice_mix += modulated_gain3 * wave3  # NO envelope yet
 
@@ -3157,11 +3206,23 @@ class SineWaveGenerator(QMainWindow):
             noise_env = self.noise.envelope.process(frames)
             mixed += noise_signal * noise_env * self.noise_gain
 
-        # Apply filter with LFO modulation to cutoff
+        # Apply LFO modulation to filter cutoff with proper dry/wet mix
+        # Dry = base cutoff from knob, Wet = LFO-modulated cutoff
         if self.lfo_to_filter_cutoff > 0:
-            lfo_mean = np.mean(lfo_signal)
-            cutoff_mod = 2.0 ** (lfo_mean * 2.0 * self.lfo_to_filter_cutoff * self.lfo_to_filter_cutoff_mix)  # ±2 octaves
-            self.filter.cutoff = np.clip(self.filter.cutoff * cutoff_mod, 20.0, 20000.0)
+            # Calculate modulation multiplier using cached lfo_mean
+            cutoff_mod = 2.0 ** (lfo_mean * LFO_FILTER_MOD_OCTAVES * self.lfo_to_filter_cutoff)
+            # Wet signal: modulated cutoff
+            wet_cutoff = self.filter_cutoff_base * cutoff_mod
+            # Dry signal: base cutoff from knob
+            dry_cutoff = self.filter_cutoff_base
+            # Blend between dry and wet based on mix
+            self.filter.cutoff = np.clip(
+                dry_cutoff * (1.0 - self.lfo_to_filter_cutoff_mix) + wet_cutoff * self.lfo_to_filter_cutoff_mix,
+                FILTER_CUTOFF_MIN, FILTER_CUTOFF_MAX
+            )
+        else:
+            # No modulation: use base cutoff
+            self.filter.cutoff = self.filter_cutoff_base
 
         filtered = self.filter.process(mixed)
 
