@@ -3,70 +3,70 @@
   "oscillators": {
     "osc1": {
       "enabled": true,
-      "waveform": "Sine",
+      "waveform": "Sawtooth",
       "frequency": 440.0,
-      "detune": 0.0,
+      "detune": -5.0,
       "octave": 0,
       "pulse_width": 0.5,
-      "gain": 0.5
+      "gain": 0.45
     },
     "osc2": {
-      "enabled": false,
-      "waveform": "Sine",
+      "enabled": true,
+      "waveform": "Sawtooth",
       "frequency": 440.0,
-      "detune": 0.0,
+      "detune": 7.0,
       "octave": 0,
       "pulse_width": 0.5,
-      "gain": 0.0
+      "gain": 0.45
     },
     "osc3": {
-      "enabled": false,
-      "waveform": "Sine",
+      "enabled": true,
+      "waveform": "Square",
       "frequency": 440.0,
       "detune": 0.0,
-      "octave": 0,
-      "pulse_width": 0.5,
-      "gain": 0.0
+      "octave": -1,
+      "pulse_width": 0.3,
+      "gain": 0.25
     }
   },
-  "voice_mode": "Mono",
+  "voice_mode": "Unison",
   "playback_mode": "chromatic",
   "envelope": {
-    "attack": 0.01,
-    "decay": 0.1,
-    "sustain": 0.7,
-    "release": 0.3
+    "attack": 0.005,
+    "decay": 0.2,
+    "sustain": 0.6,
+    "release": 0.5
   },
   "filter": {
-    "cutoff": 5000.0,
-    "resonance": 0.0
+    "cutoff": 3500.0,
+    "resonance": 0.35
   },
   "lfo": {
-    "waveform": "Sine",
+    "waveform": "Triangle",
     "rate_mode": "Free",
-    "rate_hz": 2.0,
+    "rate_hz": 5.5,
     "sync_division": "1/4",
     "bpm": 120.0,
     "depth": {
-      "osc1_pitch": 0.0,
-      "osc2_pitch": 0.0,
+      "osc1_pitch": 0.4,
+      "osc2_pitch": 0.4,
       "osc3_pitch": 0.0,
       "osc1_pw": 0.0,
       "osc2_pw": 0.0,
-      "osc3_pw": 0.0,
-      "filter_cutoff": 0.0,
+      "osc3_pw": 0.6,
+      "filter_cutoff": 0.5,
       "osc1_volume": 0.0,
       "osc2_volume": 0.0,
       "osc3_volume": 0.0
     },
     "mix": {
-      "osc1_pitch": 1.0,
-      "osc2_pitch": 1.0,
+      "osc1_pitch": 0.7,
+      "osc2_pitch": 0.7,
       "osc3_pitch": 1.0,
       "osc1_pw": 1.0,
       "osc2_pw": 1.0,
-      "osc3_pw": 1.0,
-      "filter_cutoff": 1.0,
+      "osc3_pw": 0.8,
+      "filter_cutoff": 0.6,
       "osc1_volume": 1.0,
       "osc2_volume": 1.0,
       "osc3_volume": 1.0

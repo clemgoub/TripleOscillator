@@ -2269,10 +2269,10 @@ class SineWaveGenerator(QMainWindow):
 
         # Create preset data structure
         preset = {
-            "version": "1.0",  # For future compatibility
+            "version": "1.1",  # Incremented: now saves actual on/off states
             "oscillators": {
                 "osc1": {
-                    "enabled": self.osc1_enabled,
+                    "enabled": self.osc1_on,  # Save actual runtime on/off state
                     "waveform": self.waveform1,
                     "frequency": self.freq1,
                     "detune": self.detune1,
@@ -2281,7 +2281,7 @@ class SineWaveGenerator(QMainWindow):
                     "gain": self.gain1
                 },
                 "osc2": {
-                    "enabled": self.osc2_enabled,
+                    "enabled": self.osc2_on,  # Save actual runtime on/off state
                     "waveform": self.waveform2,
                     "frequency": self.freq2,
                     "detune": self.detune2,
@@ -2290,7 +2290,7 @@ class SineWaveGenerator(QMainWindow):
                     "gain": self.gain2
                 },
                 "osc3": {
-                    "enabled": self.osc3_enabled,
+                    "enabled": self.osc3_on,  # Save actual runtime on/off state
                     "waveform": self.waveform3,
                     "frequency": self.freq3,
                     "detune": self.detune3,
@@ -2381,10 +2381,14 @@ class SineWaveGenerator(QMainWindow):
             osc2 = preset.get("oscillators", {}).get("osc2", {})
             osc3 = preset.get("oscillators", {}).get("osc3", {})
 
-            # Load oscillator enabled states (default True if missing for backward compatibility)
-            self.osc1_enabled = osc1.get("enabled", True)
-            self.osc2_enabled = osc2.get("enabled", True)
-            self.osc3_enabled = osc3.get("enabled", True)
+            # Load oscillator on/off states (default True if missing for backward compatibility)
+            self.osc1_on = osc1.get("enabled", True)
+            self.osc2_on = osc2.get("enabled", True)
+            self.osc3_on = osc3.get("enabled", True)
+            # Sync enabled states for backward compatibility
+            self.osc1_enabled = self.osc1_on
+            self.osc2_enabled = self.osc2_on
+            self.osc3_enabled = self.osc3_on
 
             # Oscillator 1
             self.waveform1 = osc1.get("waveform", "Sine")
@@ -2409,14 +2413,6 @@ class SineWaveGenerator(QMainWindow):
             self.octave3 = osc3.get("octave", 0)
             self.pulse_width3 = osc3.get("pulse_width", 0.5)
             self.gain3 = osc3.get("gain", 0.33)
-
-            # Set mixer gains to 0.0 for disabled oscillators
-            if not self.osc1_enabled:
-                self.gain1 = 0.0
-            if not self.osc2_enabled:
-                self.gain2 = 0.0
-            if not self.osc3_enabled:
-                self.gain3 = 0.0
 
             # Envelope settings (single envelope applied post-mixer)
             env = preset.get("envelope", {})
@@ -2566,10 +2562,14 @@ class SineWaveGenerator(QMainWindow):
             osc2 = preset.get("oscillators", {}).get("osc2", {})
             osc3 = preset.get("oscillators", {}).get("osc3", {})
 
-            # Load oscillator enabled states (default True if missing for backward compatibility)
-            self.osc1_enabled = osc1.get("enabled", True)
-            self.osc2_enabled = osc2.get("enabled", True)
-            self.osc3_enabled = osc3.get("enabled", True)
+            # Load oscillator on/off states (default True if missing for backward compatibility)
+            self.osc1_on = osc1.get("enabled", True)
+            self.osc2_on = osc2.get("enabled", True)
+            self.osc3_on = osc3.get("enabled", True)
+            # Sync enabled states for backward compatibility
+            self.osc1_enabled = self.osc1_on
+            self.osc2_enabled = self.osc2_on
+            self.osc3_enabled = self.osc3_on
 
             # Oscillator 1
             self.waveform1 = osc1.get("waveform", "Sine")
@@ -2594,14 +2594,6 @@ class SineWaveGenerator(QMainWindow):
             self.octave3 = osc3.get("octave", 0)
             self.pulse_width3 = osc3.get("pulse_width", 0.5)
             self.gain3 = osc3.get("gain", 0.33)
-
-            # Set mixer gains to 0.0 for disabled oscillators
-            if not self.osc1_enabled:
-                self.gain1 = 0.0
-            if not self.osc2_enabled:
-                self.gain2 = 0.0
-            if not self.osc3_enabled:
-                self.gain3 = 0.0
 
             # Envelope settings (single envelope applied post-mixer)
             env = preset.get("envelope", {})
