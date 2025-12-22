@@ -1790,6 +1790,10 @@ class SineWaveGenerator(QMainWindow):
         main_layout.setSpacing(5)
         main_layout.setContentsMargins(5, 5, 5, 5)
 
+        # Store LFO slider references for preset loading
+        self.lfo_depth_sliders = {}  # keyed by attribute name (e.g., 'lfo_to_osc1_pitch')
+        self.lfo_mix_sliders = {}    # keyed by attribute name (e.g., 'lfo_to_osc1_pitch_mix')
+
         # Top row: LFO controls
         lfo_controls_layout = QHBoxLayout()
         lfo_controls_layout.setSpacing(15)
@@ -1894,6 +1898,8 @@ class SineWaveGenerator(QMainWindow):
                 depth_slider.setTickPosition(QSlider.TicksRight)
                 depth_slider.valueChanged.connect(lambda v, attr=depth_attr: setattr(self, attr, v / 100.0))
                 dual_slider_row.addWidget(depth_slider)
+                # Store reference for preset loading
+                self.lfo_depth_sliders[depth_attr] = depth_slider
 
                 # Mix slider (ADSR style with tick marks)
                 mix_slider = QSlider(Qt.Vertical)
@@ -1904,6 +1910,8 @@ class SineWaveGenerator(QMainWindow):
                 mix_slider.setTickPosition(QSlider.TicksRight)
                 mix_slider.valueChanged.connect(lambda v, attr=mix_attr: setattr(self, attr, v / 100.0))
                 dual_slider_row.addWidget(mix_slider)
+                # Store reference for preset loading
+                self.lfo_mix_sliders[mix_attr] = mix_slider
 
                 target_container.addLayout(dual_slider_row)
 
@@ -2763,10 +2771,10 @@ class SineWaveGenerator(QMainWindow):
         self.decay_slider.blockSignals(True)
         self.sustain_slider.blockSignals(True)
         self.release_slider.blockSignals(True)
-        self.attack_slider.setValue(int(self.env.attack * 50))  # seconds * 1000 / 20 = * 50
-        self.decay_slider.setValue(int(self.env.decay * 50))    # seconds * 1000 / 20 = * 50
-        self.sustain_slider.setValue(int(self.env.sustain * 100))  # 0-1 to 0-100
-        self.release_slider.setValue(int(self.env.release * 20))  # seconds * 1000 / 50 = * 20
+        self.attack_slider.setValue(round(self.env.attack * 50))  # seconds * 1000 / 20 = * 50 (use round, not int)
+        self.decay_slider.setValue(round(self.env.decay * 50))    # seconds * 1000 / 20 = * 50 (use round, not int)
+        self.sustain_slider.setValue(round(self.env.sustain * 100))  # 0-1 to 0-100 (use round, not int)
+        self.release_slider.setValue(round(self.env.release * 20))  # seconds * 1000 / 50 = * 20 (use round, not int)
         self.attack_slider.blockSignals(False)
         self.decay_slider.blockSignals(False)
         self.sustain_slider.blockSignals(False)
@@ -2817,6 +2825,20 @@ class SineWaveGenerator(QMainWindow):
             self.lfo_sync_combo.blockSignals(True)
             self.lfo_sync_combo.setCurrentText(self.lfo.sync_division)
             self.lfo_sync_combo.blockSignals(False)
+
+        # Update LFO depth sliders
+        for attr_name, slider in self.lfo_depth_sliders.items():
+            slider.blockSignals(True)
+            value = getattr(self, attr_name, 0.0)
+            slider.setValue(round(value * 100))  # 0.0-1.0 → 0-100
+            slider.blockSignals(False)
+
+        # Update LFO mix sliders
+        for attr_name, slider in self.lfo_mix_sliders.items():
+            slider.blockSignals(True)
+            value = getattr(self, attr_name, 1.0)
+            slider.setValue(round(value * 100))  # 0.0-1.0 → 0-100
+            slider.blockSignals(False)
 
         # Update oscillator enable/disable buttons
         # Sync osc_on variables with osc_enabled from preset
