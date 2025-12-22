@@ -3181,11 +3181,9 @@ class SineWaveGenerator(QMainWindow):
             del self.active_voices[note]
 
         # Apply voice count normalization (prevents clipping with multiple voices)
-        # BUT: In unison mode (max_polyphony=1), all voices are playing the same note,
-        # so we want full volume without normalization for thick unison sound
-        if active_count > 0 and self.max_polyphony > 1:
-            # Only normalize in polyphonic mode where multiple different notes play
-            # Use sqrt normalization for better perceived loudness
+        # Use sqrt normalization for both poly and unison modes for better perceived loudness
+        # With 8 voices: 1/sqrt(8) ≈ 0.35 per voice → ~2.8x total (thick but controlled)
+        if active_count > 0:
             normalization = 1.0 / np.sqrt(active_count)
             mixed *= normalization
 
