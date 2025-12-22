@@ -32,9 +32,9 @@ from PyQt5.QtGui import QFont
 
 # Filter Constants
 Q_BUTTERWORTH = 0.707      # Butterworth filter Q (maximally flat response)
-Q_SCALE = 14.293           # Scale factor for resonance to Q mapping (15.0 - 0.707)
+Q_SCALE = 9.293            # Scale factor for resonance to Q mapping (10.0 - 0.707)
 Q_MIN = 0.5                # Minimum Q value for stability
-Q_MAX = 15.0               # Maximum Q value (prevents self-oscillation)
+Q_MAX = 10.0               # Maximum Q value (prevents self-oscillation, reduced for better stability)
 FREQ_MIN_NORMALIZED = 0.001  # Minimum normalized frequency (cutoff/sample_rate)
 FREQ_MAX_NORMALIZED = 0.499  # Maximum normalized frequency (prevents Nyquist aliasing)
 FILTER_OUTPUT_MIN = -2.0   # Minimum filter output (prevents clipping)
@@ -56,6 +56,9 @@ PW_MAX = 0.99  # Maximum pulse width (prevents duty cycle issues)
 # Volume Modulation
 VOL_MOD_MIN = 0.0  # Minimum volume modulation (silence)
 VOL_MOD_MAX = 1.0  # Maximum volume modulation (full volume)
+
+# Envelope Anti-Click
+ENV_MIN_ATTACK = 0.001  # Minimum attack time in seconds (1ms anti-click fade)
 
 
 class MIDIHandler(QObject):
@@ -194,7 +197,9 @@ class EnvelopeGenerator:
                 break
 
             elif self.phase == 'attack':
-                attack_samples = max(1, int(self.attack * self.sample_rate))
+                # Use minimum attack time to prevent clicks from instant attacks
+                effective_attack = max(self.attack, ENV_MIN_ATTACK)
+                attack_samples = max(1, int(effective_attack * self.sample_rate))
                 samples_left_in_phase = attack_samples - self.samples_in_phase
                 samples_to_process = min(remaining, samples_left_in_phase)
 
