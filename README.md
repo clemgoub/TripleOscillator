@@ -63,20 +63,22 @@ I strongly discourage using the code in this repository for the purpose of train
 - **Real-time Mixing**: Adjust oscillator levels on the fly
 
 ### ADSR Envelope Generator
-- **Attack**: 0-2000ms - Control how quickly the sound fades in (default: 0ms)
+- **Attack**: 0-2000ms - Control how quickly the sound fades in (default: 0ms, min 1ms anti-click)
 - **Decay**: 0-2000ms - Control how quickly it drops to sustain level
 - **Sustain**: 0-100% - Set the held level
 - **Release**: 0-5000ms - Control fade-out time after note off (default: 300ms)
-- **Per-Oscillator Envelopes**: Each oscillator has its own independent envelope
+- **Post-Mixer Architecture**: Single envelope applied after oscillator mixing for efficiency
 - **Per-Voice Envelopes**: In poly/unison modes, each voice has independent envelopes
 - **Real-time Updates**: ADSR changes affect all active voices immediately
+- **Anti-Click Protection**: Minimum 1ms attack prevents discontinuities
 
 ### Low-Pass Filter
 - **Cutoff Frequency**: 20-5000 Hz - Remove frequencies above the cutoff
-- **Resonance**: 0-100% - Emphasize the cutoff frequency for character (Q range 0.707-15)
+- **Resonance**: 0-100% - Emphasize the cutoff frequency for character (Q range 0.707-10)
 - **Biquad Filter Design**: Professional-quality filtering with stability protection
 - **Artifact-Free**: Advanced state management prevents crackling at high resonance
 - **Smooth Parameter Changes**: No clicks when sweeping cutoff or resonance
+- **Coefficient Caching**: Only recalculates when parameters change for optimal performance
 
 ### LFO (Low-Frequency Oscillator)
 - **3 Waveforms**: Sine, Triangle, Square for different modulation shapes
@@ -205,12 +207,14 @@ classDiagram
         +handle_note_off(note)
         +toggle_oscillator()
         +generate_waveform()
+        +process_oscillator(osc_num, voice, ...)
         +apply_detune()
         +apply_octave()
         +update_pulse_width()
         +update_adsr()
         +save_preset()
         +load_preset()
+        +update_ui_from_preset()
     }
 
     class Voice {
@@ -290,7 +294,7 @@ graph LR
     V2 --> MIX
     V3 --> MIX
 
-    MIX --> FILT[Low-Pass Filter<br/>Cutoff + Resonance<br/>Stable Q≤15]
+    MIX --> FILT[Low-Pass Filter<br/>Cutoff + Resonance<br/>Stable Q≤10]
     FILT --> OUT[Audio Output<br/>Stereo 44.1kHz]
 
     UI[UI Controls] -.->|voice mode| VM
@@ -383,7 +387,7 @@ sequenceDiagram
 
 **Low-Pass Filter**
 - Biquad (2-pole) IIR filter design with resonance
-- Adjustable cutoff frequency (20-5000 Hz) and resonance (Q 0.707-15)
+- Adjustable cutoff frequency (20-5000 Hz) and resonance (Q 0.707-10)
 - **Stability protection**: Conservative Q limiting prevents self-oscillation
 - **Artifact-free operation**: Proper state management eliminates crackling
 - Applied globally after voice and noise mixing
@@ -429,6 +433,17 @@ This project started as a simple sine wave generator and evolved into a full sub
 14. **Noise Generator**: Added white/pink/brown noise as independent 4th oscillator with envelope integration
 15. **Architecture Refactoring**: Migrated from per-oscillator envelopes to single post-mixer envelope (3x efficiency improvement)
 16. **Filter Stability**: Implemented advanced biquad filter with Q limiting, state protection, and artifact-free parameter sweeping
+17. **Performance Optimizations** (Phase 1-3): Python optimization for future hardware porting
+    - **Phase 1 - Performance**: LFO mean caching (7→1 calls), filter coefficient caching, magic numbers → constants
+    - **Phase 2 - Code Quality**: Oscillator deduplication (~90 lines → 3 lines with `process_oscillator()` helper)
+    - **Phase 3 - Audio Quality**: Reduced max filter Q (15→10), envelope anti-click (1ms minimum attack)
+18. **Unison Mode Fix**: Implemented voice count normalization for all modes (fixed 8x loudness issue in unison)
+19. **Comprehensive Preset System**: Enhanced preset format v1.1 with complete parameter coverage
+    - Fixed oscillator on/off state saving (runtime state vs stale state bug)
+    - Added LFO and ADSR slider UI updates when loading presets
+    - Fixed preset name display for both Load button and preset browser
+    - Created Init.json and SuperSaw.json demo presets
+    - All synth parameters now save/load correctly (oscillators, LFO, noise, voice modes, envelopes, filter)
 
 ## Roadmap
 
@@ -440,9 +455,9 @@ Future enhancements:
 - [x] Polyphonic voice support (MONO/POLY/UNI modes)
 - [x] Computer keyboard input for playing notes
 - [x] LFO (Low-Frequency Oscillator) for modulation
+- [x] Create comprehensive demo presets (Init, SuperSaw)
 - [ ] Fine tune knobs
 - [ ] Center tune knobs % to top instead of right
-- [ ] Create 10-20 presets and save them on git
 - [ ] Additional filter types (high-pass, band-pass)
 - [ ] Effects (reverb, delay, distortion)
 - [ ] VST plugin export
