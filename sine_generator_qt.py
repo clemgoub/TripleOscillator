@@ -2384,6 +2384,9 @@ class SineWaveGenerator(QMainWindow):
             with open(file_path, 'r') as f:
                 preset = json.load(f)
 
+            # Extract preset name from file or JSON
+            self.current_preset_name = preset.get("name", os.path.splitext(os.path.basename(file_path))[0])
+
             # Extract oscillator settings with defaults for forward compatibility
             osc1 = preset.get("oscillators", {}).get("osc1", {})
             osc2 = preset.get("oscillators", {}).get("osc2", {})
@@ -2501,6 +2504,9 @@ class SineWaveGenerator(QMainWindow):
 
             # Update UI to reflect loaded preset
             self.update_ui_from_preset()
+
+            # Update preset name label
+            self.preset_name_label.setText(self.current_preset_name)
 
             QMessageBox.information(self, "Success", f"Preset loaded from:\n{file_path}")
 
