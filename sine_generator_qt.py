@@ -58,7 +58,7 @@ VOL_MOD_MIN = 0.0  # Minimum volume modulation (silence)
 VOL_MOD_MAX = 1.0  # Maximum volume modulation (full volume)
 
 # Envelope Anti-Click
-ENV_MIN_ATTACK = 0.001  # Minimum attack time in seconds (1ms anti-click fade)
+ENV_MIN_ATTACK = 0.005  # Minimum attack time in seconds (5ms anti-click fade)
 
 
 class MIDIHandler(QObject):
@@ -163,11 +163,21 @@ class EnvelopeGenerator:
         self.release_start_level = 0.0  # Level at which release started
 
     def trigger(self):
-        """Trigger note on (start attack phase)"""
+        """Trigger note on (start attack phase with legato retrigger)
+
+        Uses legato retriggering: if envelope is already active, start attack
+        from current level instead of 0. This prevents clicks when stealing voices.
+        """
         self.phase = 'attack'
         self.samples_in_phase = 0
-        self.level = 0.0  # Reset to 0 for standard monophonic synth behavior
-        self.attack_start_level = 0.0  # Always start attack from 0
+
+        # Legato retrigger: Start attack from current level if already active
+        # This prevents clicks when stealing voices (voice goes from sustain → attack smoothly)
+        if self.level > 0.01:  # If envelope is already active
+            self.attack_start_level = self.level  # Start from current level
+        else:
+            self.level = 0.0  # Only reset to 0 if envelope was idle
+            self.attack_start_level = 0.0
 
     def release_note(self):
         """Trigger note off (start release phase)"""
@@ -346,9 +356,12 @@ class LowPassFilter:
             self.last_cutoff = self.cutoff
             self.last_resonance = self.resonance
 
-        # Initialize state only on first run
+            # Note: We keep the old filter state (zi) when coefficients change
+            # The state will adapt naturally over a few samples without causing clicks
+
+        # Initialize state only on first run (using zero for click-free startup)
         if self.zi is None:
-            self.zi = scipy_signal.lfilter_zi(self.b, self.a) * input_signal[0]
+            self.zi = scipy_signal.lfilter_zi(self.b, self.a) * 0.0
 
         # Apply filter with state preservation using cached coefficients
         output, self.zi = scipy_signal.lfilter(self.b, self.a, input_signal, zi=self.zi)
@@ -480,20 +493,27 @@ class Voice:
             note: MIDI note number
             velocity: Note velocity (0-127)
             unison_detune: Detune amount in cents for unison spread
-            phase_offset: Phase offset in radians for subtle stereo width (0 to π/4)
+            phase_offset: Phase offset in radians (DEPRECATED - always starts at zero for click-free operation)
         """
+        # Check if this is a fresh trigger (voice was idle) or a steal (voice was active)
+        was_active = self.is_active()
+
         self.note = note
         self.velocity = velocity
         self.unison_detune = unison_detune
         self.age = 0
 
-        # Apply subtle phase offset for unison width
-        # Small offsets (0 to π/4) add stereo presence without harsh phasing
-        self.phase1 = phase_offset
-        self.phase2 = phase_offset
-        self.phase3 = phase_offset
+        # Only reset oscillator phases if voice was idle (fresh trigger)
+        # If stealing an active voice, keep phases to avoid discontinuities (like analog synths)
+        if not was_active:
+            # Fresh trigger: Start at zero crossing for click-free note starts
+            self.phase1 = 0.0
+            self.phase2 = 0.0
+            self.phase3 = 0.0
+        # else: Voice stealing - keep current phases, just retune to new frequency
+        # This allows oscillators to continue smoothly at their current phase position
 
-        # Trigger single envelope
+        # Trigger envelope (uses legato retrigger if already active)
         self.env.trigger()
 
     def release(self):
@@ -642,6 +662,8 @@ class SineWaveGenerator(QMainWindow):
         # Filter
         self.filter = LowPassFilter(self.sample_rate)
         self.filter_cutoff_base = 5000.0  # Store the "dry" cutoff from knob (not modulated)
+
+        # DC blocking filter state will be initialized on first use (no need to pre-allocate)
 
         # LFO
         self.lfo = LFOGenerator(self.sample_rate)
@@ -3036,8 +3058,37 @@ class SineWaveGenerator(QMainWindow):
         # Last resort: steal oldest active voice
         return max(self.voice_pool, key=lambda v: v.age)
 
+    def poly_blep_vectorized(self, t, dt):
+        """Vectorized PolyBLEP (Polynomial Band-Limited stEP) residual for anti-aliasing
+
+        Reduces aliasing in non-bandlimited waveforms by smoothing discontinuities
+        using polynomial interpolation. Industry standard technique for high-quality
+        synthesis.
+
+        Args:
+            t: Phase position array normalized to 0-1
+            dt: Phase increment per sample normalized to 0-1
+
+        Returns:
+            Residual array to subtract from naive waveform
+        """
+        # Initialize output array
+        residual = np.zeros_like(t)
+
+        # Near rising edge (phase wrapping from 1 to 0)
+        mask1 = t < dt
+        t1 = t[mask1] / dt
+        residual[mask1] = t1 + t1 - t1 * t1 - 1.0
+
+        # Near falling edge (approaching phase = 1)
+        mask2 = t > (1.0 - dt)
+        t2 = (t[mask2] - 1.0) / dt
+        residual[mask2] = t2 * t2 + t2 + t2 + 1.0
+
+        return residual
+
     def generate_waveform(self, waveform_type, phase, phase_increment, frames, pulse_width=0.5):
-        """Generate a waveform based on type
+        """Generate a waveform based on type with PolyBLEP anti-aliasing
 
         Args:
             waveform_type: Type of waveform ("Sine", "Sawtooth", "Square")
@@ -3050,12 +3101,39 @@ class SineWaveGenerator(QMainWindow):
 
         if waveform_type == "Sine":
             return np.sin(phases)
+
         elif waveform_type == "Sawtooth":
-            return 2 * ((phases % (2 * np.pi)) / (2 * np.pi)) - 1
+            # Normalize phase to 0-1 for PolyBLEP
+            normalized_phases = (phases % (2 * np.pi)) / (2 * np.pi)
+            dt = phase_increment / (2 * np.pi)  # Normalized phase increment
+
+            # Generate naive sawtooth
+            naive_saw = 2 * normalized_phases - 1
+
+            # Apply vectorized PolyBLEP correction at discontinuities
+            blep_correction = self.poly_blep_vectorized(normalized_phases, dt)
+            output = naive_saw - blep_correction
+
+            return output
+
         elif waveform_type == "Square":
-            # Pulse width modulation: compare normalized phase to pulse width
-            normalized_phase = (phases % (2 * np.pi)) / (2 * np.pi)
-            return np.where(normalized_phase < pulse_width, 1.0, -1.0)
+            # Normalize phase to 0-1 for PolyBLEP
+            normalized_phases = (phases % (2 * np.pi)) / (2 * np.pi)
+            dt = phase_increment / (2 * np.pi)  # Normalized phase increment
+
+            # Generate naive square wave with PWM
+            naive_square = np.where(normalized_phases < pulse_width, 1.0, -1.0)
+
+            # Apply vectorized PolyBLEP correction at both rising and falling edges
+            # Rising edge at t=0
+            blep_rising = self.poly_blep_vectorized(normalized_phases, dt)
+            # Falling edge at t=pulse_width (wrap phase for edge detection)
+            phase_from_falling = (normalized_phases - pulse_width) % 1.0
+            blep_falling = self.poly_blep_vectorized(phase_from_falling, dt)
+
+            output = naive_square - blep_rising + blep_falling
+
+            return output
         else:
             return np.sin(phases)
 
@@ -3236,11 +3314,29 @@ class SineWaveGenerator(QMainWindow):
         filtered = self.filter.process(mixed)
 
         # Apply master volume
-        filtered = self.master_volume * filtered
+        output_signal = self.master_volume * filtered
+
+        # Apply DC blocking filter to remove any DC offset (vectorized)
+        # Uses a simple first-order high-pass filter with ~5Hz cutoff
+        # Transfer function: H(z) = (1 - z^-1) / (1 - 0.995*z^-1)
+        # y[n] = x[n] - x[n-1] + R * y[n-1], where R = 0.995
+        b_dc = [1.0, -1.0]  # Numerator coefficients
+        a_dc = [1.0, -0.995]  # Denominator coefficients
+
+        # Initialize DC blocker state on first use
+        if not hasattr(self, 'dc_blocker_zi'):
+            self.dc_blocker_zi = scipy_signal.lfilter_zi(b_dc, a_dc) * 0.0
+
+        # Apply vectorized DC blocking filter
+        dc_blocked, self.dc_blocker_zi = scipy_signal.lfilter(b_dc, a_dc, output_signal, zi=self.dc_blocker_zi)
+
+        # Final safety clamp to prevent any clipping artifacts (soft limit at ±1.0)
+        # This protects against edge cases where filter resonance or noise might push levels too high
+        final_output = np.clip(dc_blocked, -1.0, 1.0)
 
         # Output stereo
-        outdata[:, 0] = filtered
-        outdata[:, 1] = filtered
+        outdata[:, 0] = final_output
+        outdata[:, 1] = final_output
 
     def toggle_oscillator(self, osc_num):
         """Toggle oscillator on/off and trigger/release envelope"""
@@ -3535,14 +3631,13 @@ class SineWaveGenerator(QMainWindow):
                 # steal_voice() returned a voice we already have, try next iteration
                 continue
 
-        # Trigger voices with appropriate detune offsets and phase spread
+        # Trigger voices with appropriate detune offsets
+        # Always use phase_offset=0 for click-free triggering (zero crossing start)
         allocated_voices = []
         for i, voice in enumerate(available_voices[:voices_needed]):
             unison_detune = detune_pattern[i] if i < len(detune_pattern) else 0.0
-            # Add subtle phase offset for unison mode to create width
-            # Use small offsets (0 to π/4) to avoid harsh phasing
-            phase_offset = (i / max(voices_needed - 1, 1)) * (np.pi / 4) if voices_needed > 1 else 0.0
-            voice.trigger(note, velocity, unison_detune, phase_offset)
+            # Always start at zero phase for click-free operation
+            voice.trigger(note, velocity, unison_detune, phase_offset=0.0)
             allocated_voices.append(voice)
 
         # Track active voices for this note

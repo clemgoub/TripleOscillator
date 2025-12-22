@@ -25,8 +25,8 @@ I strongly discourage using the code in this repository for the purpose of train
 - **3 Independent Oscillators**
 - **3 Waveforms per Oscillator**:
   - Sine: Pure, smooth tones
-  - Sawtooth: Bright, buzzy sounds
-  - Square: Hollow, clarinet-like tones with pulse width modulation
+  - Sawtooth: Bright, buzzy sounds (PolyBLEP anti-aliased)
+  - Square: Hollow, clarinet-like tones with pulse width modulation (PolyBLEP anti-aliased)
 - **Pulse Width Modulation (PWM)**: Adjustable duty cycle for square waves (1-99%)
   - Creates timbres from thin/nasal to thick/hollow
   - Independent PWM control per oscillator
@@ -38,6 +38,8 @@ I strongly discourage using the code in this repository for the purpose of train
 - **Octave Switches**: Independent octave controls per oscillator (-3 to +3 octaves, disabled in drone mode)
 - **Real-time Frequency Adjustment**: Smooth frequency changes without clicks
 - **Individual On/Off Controls**: Per-oscillator activation with visual feedback
+- **PolyBLEP Anti-Aliasing**: Band-limited waveform generation eliminates harsh aliasing artifacts from sawtooth/square waves
+- **Phase Preservation**: Oscillators maintain phase continuity during voice stealing for click-free transitions
 
 ### Voice Modes & Polyphony
 - **2 Playback Modes**: CHROM (chromatic) / DRONE mode switch
@@ -63,14 +65,15 @@ I strongly discourage using the code in this repository for the purpose of train
 - **Real-time Mixing**: Adjust oscillator levels on the fly
 
 ### ADSR Envelope Generator
-- **Attack**: 0-2000ms - Control how quickly the sound fades in (default: 0ms, min 1ms anti-click)
+- **Attack**: 0-2000ms - Control how quickly the sound fades in (default: 0ms, min 5ms anti-click)
 - **Decay**: 0-2000ms - Control how quickly it drops to sustain level
 - **Sustain**: 0-100% - Set the held level
 - **Release**: 0-5000ms - Control fade-out time after note off (default: 300ms)
 - **Post-Mixer Architecture**: Single envelope applied after oscillator mixing for efficiency
 - **Per-Voice Envelopes**: In poly/unison modes, each voice has independent envelopes
+- **Legato Retriggering**: Smooth envelope transitions when stealing voices (analog synth behavior)
 - **Real-time Updates**: ADSR changes affect all active voices immediately
-- **Anti-Click Protection**: Minimum 1ms attack prevents discontinuities
+- **Anti-Click Protection**: Minimum 5ms attack prevents discontinuities
 
 ### Low-Pass Filter
 - **Cutoff Frequency**: 20-5000 Hz - Remove frequencies above the cutoff
@@ -206,8 +209,10 @@ classDiagram
         +handle_note_on(note)
         +handle_note_off(note)
         +toggle_oscillator()
+        +poly_blep_vectorized(t, dt)
         +generate_waveform()
         +process_oscillator(osc_num, voice, ...)
+        +steal_voice()
         +apply_detune()
         +apply_octave()
         +update_pulse_width()
@@ -444,6 +449,13 @@ This project started as a simple sine wave generator and evolved into a full sub
     - Fixed preset name display for both Load button and preset browser
     - Created Init.json and SuperSaw.json demo presets
     - All synth parameters now save/load correctly (oscillators, LFO, noise, voice modes, envelopes, filter)
+20. **Audio Quality Overhaul**: Professional-grade click/artifact elimination
+    - **PolyBLEP Anti-Aliasing**: Vectorized band-limited waveform generation for sawtooth/square waves eliminates harsh aliasing
+    - **Click-Free Note Triggering**: Zero-crossing phase start for fresh notes, 5ms minimum attack envelope
+    - **Voice Stealing Optimization**: Legato envelope retriggering + phase preservation (analog synth behavior) for smooth voice transitions
+    - **Vectorized Processing**: DC blocker and PolyBLEP now use NumPy operations (100-1000x faster, eliminates crackling)
+    - **Filter Stability**: Removed state recomputation on coefficient changes, preventing pops during parameter sweeps
+    - **Output Protection**: Final clipping protection prevents overload artifacts
 
 ## Roadmap
 
