@@ -3032,6 +3032,76 @@ class SineWaveGenerator(QMainWindow):
         else:
             return np.sin(phases)
 
+    def process_oscillator(self, osc_num, voice, base_freq_detuned, lfo_signal, lfo_mean, frames):
+        """Process a single oscillator and return its output signal
+
+        This helper eliminates code duplication across the three oscillators by using
+        dynamic attribute access to get oscillator-specific parameters.
+
+        Args:
+            osc_num: Oscillator number (1, 2, or 3)
+            voice: Voice object
+            base_freq_detuned: Base frequency with unison detune applied
+            lfo_signal: LFO signal array (-1 to 1)
+            lfo_mean: Mean of LFO signal (cached for performance)
+            frames: Number of frames to generate
+
+        Returns:
+            numpy array of oscillator output (or zeros if oscillator is off)
+        """
+        # Check if oscillator is enabled
+        osc_on = getattr(self, f'osc{osc_num}_on')
+        if not osc_on:
+            return np.zeros(frames)
+
+        # Get oscillator-specific parameters using dynamic attribute access
+        drone_freq = getattr(self, f'freq{osc_num}')
+        detune = getattr(self, f'detune{osc_num}')
+        octave = getattr(self, f'octave{osc_num}')
+        waveform = getattr(self, f'waveform{osc_num}')
+        pulse_width = getattr(self, f'pulse_width{osc_num}')
+        gain = getattr(self, f'gain{osc_num}')
+
+        # LFO modulation parameters
+        lfo_pitch_depth = getattr(self, f'lfo_to_osc{osc_num}_pitch')
+        lfo_pitch_mix = getattr(self, f'lfo_to_osc{osc_num}_pitch_mix')
+        lfo_pw_depth = getattr(self, f'lfo_to_osc{osc_num}_pw')
+        lfo_pw_mix = getattr(self, f'lfo_to_osc{osc_num}_pw_mix')
+        lfo_vol_depth = getattr(self, f'lfo_to_osc{osc_num}_volume')
+        lfo_vol_mix = getattr(self, f'lfo_to_osc{osc_num}_volume_mix')
+
+        # Get voice phase
+        phase_attr = f'phase{osc_num}'
+        phase = getattr(voice, phase_attr)
+
+        # Determine frequency based on playback mode
+        if self.playback_mode == 'drone':
+            freq = drone_freq
+        else:
+            # Apply oscillator-specific detune and octave
+            freq = self.apply_octave(self.apply_detune(base_freq_detuned, detune), octave)
+
+        # Apply pitch modulation (vibrato) - use cached mean for phase increment calculation
+        freq_mod_scalar = 1.0 + (lfo_mean * LFO_PITCH_MOD_DEPTH * lfo_pitch_depth * lfo_pitch_mix)
+        modulated_freq = freq * freq_mod_scalar
+        phase_increment = 2 * np.pi * modulated_freq / self.sample_rate
+
+        # Apply pulse width modulation - use cached mean for pw calculation
+        pw_mod = lfo_mean * LFO_PW_MOD_DEPTH * lfo_pw_depth * lfo_pw_mix
+        modulated_pw = np.clip(pulse_width + pw_mod, PW_MIN, PW_MAX)
+
+        # Generate waveform using voice's phase
+        wave = self.generate_waveform(waveform, phase, phase_increment, frames, modulated_pw)
+
+        # Apply volume modulation (tremolo) - apply as array
+        vol_mod = 1.0 + (lfo_signal * lfo_vol_depth * lfo_vol_mix)
+        modulated_gain = gain * np.clip(vol_mod, VOL_MOD_MIN, VOL_MOD_MAX)
+
+        # Update voice phase
+        setattr(voice, phase_attr, (phase + frames * phase_increment) % (2 * np.pi))
+
+        return modulated_gain * wave
+
     def audio_callback(self, outdata, frames, time, status):
         """Generate and mix all active voices with envelopes and filter"""
         # Don't print in audio callback - causes buffer underruns
@@ -3078,97 +3148,11 @@ class SineWaveGenerator(QMainWindow):
             base_freq_detuned = self.apply_detune(base_freq, voice.unison_detune)
 
             # Generate each oscillator for this voice (WITHOUT envelope - applied post-mixer)
+            # Use helper function to eliminate code duplication
             voice_mix = np.zeros(frames)
-
-            # Oscillator 1
-            if self.osc1_on:
-                # In drone mode, use absolute frequency; in chromatic mode, use MIDI note + detune
-                if self.playback_mode == 'drone':
-                    freq1 = self.freq1
-                else:
-                    # Apply oscillator-specific detune and octave
-                    freq1 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune1), self.octave1)
-
-                # Apply pitch modulation (vibrato) - use cached mean for phase increment calculation
-                freq_mod_scalar = 1.0 + (lfo_mean * LFO_PITCH_MOD_DEPTH * self.lfo_to_osc1_pitch * self.lfo_to_osc1_pitch_mix)
-                modulated_freq1 = freq1 * freq_mod_scalar
-                phase_increment1 = 2 * np.pi * modulated_freq1 / self.sample_rate
-
-                # Apply pulse width modulation - use cached mean for pw calculation
-                pw_mod = lfo_mean * LFO_PW_MOD_DEPTH * self.lfo_to_osc1_pw * self.lfo_to_osc1_pw_mix
-                modulated_pw1 = np.clip(self.pulse_width1 + pw_mod, PW_MIN, PW_MAX)
-
-                # Generate waveform using voice's phase
-                wave1 = self.generate_waveform(self.waveform1, voice.phase1, phase_increment1, frames, modulated_pw1)
-
-                # Apply volume modulation (tremolo) - apply as array
-                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc1_volume * self.lfo_to_osc1_volume_mix)
-                modulated_gain1 = self.gain1 * np.clip(vol_mod, VOL_MOD_MIN, VOL_MOD_MAX)
-
-                voice_mix += modulated_gain1 * wave1  # NO envelope yet
-
-                # Update voice phase
-                voice.phase1 = (voice.phase1 + frames * phase_increment1) % (2 * np.pi)
-
-            # Oscillator 2
-            if self.osc2_on:
-                # In drone mode, use absolute frequency; in chromatic mode, use MIDI note + detune
-                if self.playback_mode == 'drone':
-                    freq2 = self.freq2
-                else:
-                    # Apply oscillator-specific detune and octave
-                    freq2 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune2), self.octave2)
-
-                # Apply pitch modulation - use cached mean for phase increment calculation
-                freq_mod_scalar = 1.0 + (lfo_mean * LFO_PITCH_MOD_DEPTH * self.lfo_to_osc2_pitch * self.lfo_to_osc2_pitch_mix)
-                modulated_freq2 = freq2 * freq_mod_scalar
-                phase_increment2 = 2 * np.pi * modulated_freq2 / self.sample_rate
-
-                # Apply pulse width modulation - use cached mean for pw calculation
-                pw_mod = lfo_mean * LFO_PW_MOD_DEPTH * self.lfo_to_osc2_pw * self.lfo_to_osc2_pw_mix
-                modulated_pw2 = np.clip(self.pulse_width2 + pw_mod, PW_MIN, PW_MAX)
-
-                # Generate waveform using voice's phase
-                wave2 = self.generate_waveform(self.waveform2, voice.phase2, phase_increment2, frames, modulated_pw2)
-
-                # Apply volume modulation - apply as array
-                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc2_volume * self.lfo_to_osc2_volume_mix)
-                modulated_gain2 = self.gain2 * np.clip(vol_mod, VOL_MOD_MIN, VOL_MOD_MAX)
-
-                voice_mix += modulated_gain2 * wave2  # NO envelope yet
-
-                # Update voice phase
-                voice.phase2 = (voice.phase2 + frames * phase_increment2) % (2 * np.pi)
-
-            # Oscillator 3
-            if self.osc3_on:
-                # In drone mode, use absolute frequency; in chromatic mode, use MIDI note + detune
-                if self.playback_mode == 'drone':
-                    freq3 = self.freq3
-                else:
-                    # Apply oscillator-specific detune and octave
-                    freq3 = self.apply_octave(self.apply_detune(base_freq_detuned, self.detune3), self.octave3)
-
-                # Apply pitch modulation - use cached mean for phase increment calculation
-                freq_mod_scalar = 1.0 + (lfo_mean * LFO_PITCH_MOD_DEPTH * self.lfo_to_osc3_pitch * self.lfo_to_osc3_pitch_mix)
-                modulated_freq3 = freq3 * freq_mod_scalar
-                phase_increment3 = 2 * np.pi * modulated_freq3 / self.sample_rate
-
-                # Apply pulse width modulation - use cached mean for pw calculation
-                pw_mod = lfo_mean * LFO_PW_MOD_DEPTH * self.lfo_to_osc3_pw * self.lfo_to_osc3_pw_mix
-                modulated_pw3 = np.clip(self.pulse_width3 + pw_mod, PW_MIN, PW_MAX)
-
-                # Generate waveform using voice's phase
-                wave3 = self.generate_waveform(self.waveform3, voice.phase3, phase_increment3, frames, modulated_pw3)
-
-                # Apply volume modulation - apply as array
-                vol_mod = 1.0 + (lfo_signal * self.lfo_to_osc3_volume * self.lfo_to_osc3_volume_mix)
-                modulated_gain3 = self.gain3 * np.clip(vol_mod, VOL_MOD_MIN, VOL_MOD_MAX)
-
-                voice_mix += modulated_gain3 * wave3  # NO envelope yet
-
-                # Update voice phase
-                voice.phase3 = (voice.phase3 + frames * phase_increment3) % (2 * np.pi)
+            voice_mix += self.process_oscillator(1, voice, base_freq_detuned, lfo_signal, lfo_mean, frames)
+            voice_mix += self.process_oscillator(2, voice, base_freq_detuned, lfo_signal, lfo_mean, frames)
+            voice_mix += self.process_oscillator(3, voice, base_freq_detuned, lfo_signal, lfo_mean, frames)
 
             # Apply SINGLE envelope to mixed oscillators (post-mixer efficiency!)
             env = voice.env.process(frames)
