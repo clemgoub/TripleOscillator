@@ -2826,19 +2826,21 @@ class SineWaveGenerator(QMainWindow):
             self.lfo_sync_combo.setCurrentText(self.lfo.sync_division)
             self.lfo_sync_combo.blockSignals(False)
 
-        # Update LFO depth sliders
-        for attr_name, slider in self.lfo_depth_sliders.items():
-            slider.blockSignals(True)
-            value = getattr(self, attr_name, 0.0)
-            slider.setValue(round(value * 100))  # 0.0-1.0 → 0-100
-            slider.blockSignals(False)
+        # Update LFO depth sliders (if they exist)
+        if hasattr(self, 'lfo_depth_sliders'):
+            for attr_name, slider in self.lfo_depth_sliders.items():
+                slider.blockSignals(True)
+                value = getattr(self, attr_name, 0.0)
+                slider.setValue(round(value * 100))  # 0.0-1.0 → 0-100
+                slider.blockSignals(False)
 
-        # Update LFO mix sliders
-        for attr_name, slider in self.lfo_mix_sliders.items():
-            slider.blockSignals(True)
-            value = getattr(self, attr_name, 1.0)
-            slider.setValue(round(value * 100))  # 0.0-1.0 → 0-100
-            slider.blockSignals(False)
+        # Update LFO mix sliders (if they exist)
+        if hasattr(self, 'lfo_mix_sliders'):
+            for attr_name, slider in self.lfo_mix_sliders.items():
+                slider.blockSignals(True)
+                value = getattr(self, attr_name, 1.0)
+                slider.setValue(round(value * 100))  # 0.0-1.0 → 0-100
+                slider.blockSignals(False)
 
         # Update oscillator enable/disable buttons
         # Sync osc_on variables with osc_enabled from preset
