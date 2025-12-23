@@ -3,69 +3,69 @@
   "oscillators": {
     "osc1": {
       "enabled": true,
-      "waveform": "Sawtooth",
-      "frequency": 218.22809633452937,
+      "waveform": "Square",
+      "frequency": 163.48635055567578,
       "detune": -14.0,
-      "octave": 0,
-      "pulse_width": 0.5,
-      "gain": 0.45
+      "octave": 1,
+      "pulse_width": 0.51,
+      "gain": 0.42
     },
     "osc2": {
       "enabled": true,
       "waveform": "Sawtooth",
-      "frequency": 222.29931822708804,
-      "detune": 18.0,
+      "frequency": 82.4068892282175,
+      "detune": 0.0,
       "octave": 0,
       "pulse_width": 0.5,
-      "gain": 0.45
+      "gain": 0.36
     },
     "osc3": {
       "enabled": true,
       "waveform": "Square",
-      "frequency": 110.0,
+      "frequency": 329.62755691287,
       "detune": 0.0,
-      "octave": -1,
-      "pulse_width": 0.3,
-      "gain": 0.25
+      "octave": 2,
+      "pulse_width": 0.5,
+      "gain": 0.16
     }
   },
-  "voice_mode": "Unison",
+  "voice_mode": "Mono",
   "playback_mode": "chromatic",
   "envelope": {
-    "attack": 0.005,
-    "decay": 0.2,
-    "sustain": 0.72,
-    "release": 0.5
+    "attack": 0.0,
+    "decay": 0.1,
+    "sustain": 0.46,
+    "release": 0.3
   },
   "filter": {
-    "cutoff": 4236.0,
-    "resonance": 0.33
+    "cutoff": 5000.0,
+    "resonance": 0.0
   },
   "lfo": {
-    "waveform": "Triangle",
-    "rate_mode": "Free",
-    "rate_hz": 5.5,
+    "waveform": "Sawtooth",
+    "rate_mode": "Sync",
+    "rate_hz": 2.0,
     "sync_division": "1/4",
-    "bpm": 109.65849458392358,
+    "bpm": 108.7464641811722,
     "depth": {
       "osc1_pitch": 0.0,
-      "osc2_pitch": 0.0,
+      "osc2_pitch": 0.08,
       "osc3_pitch": 0.0,
       "osc1_pw": 0.0,
       "osc2_pw": 0.0,
-      "osc3_pw": 0.6,
+      "osc3_pw": 0.0,
       "filter_cutoff": 0.0,
       "osc1_volume": 0.0,
       "osc2_volume": 0.0,
       "osc3_volume": 0.0
     },
     "mix": {
-      "osc1_pitch": 0.7,
-      "osc2_pitch": 0.7,
+      "osc1_pitch": 1.0,
+      "osc2_pitch": 1.0,
       "osc3_pitch": 1.0,
       "osc1_pw": 1.0,
       "osc2_pw": 1.0,
-      "osc3_pw": 0.8,
+      "osc3_pw": 1.0,
       "filter_cutoff": 1.0,
       "osc1_volume": 1.0,
       "osc2_volume": 1.0,
@@ -74,8 +74,8 @@
   },
   "noise": {
     "enabled": false,
-    "type": "Pink",
-    "gain": 0.17
+    "type": "White",
+    "gain": 0.03
   },
   "master": {
     "volume": 0.5,

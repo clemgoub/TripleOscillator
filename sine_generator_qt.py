@@ -19,12 +19,15 @@ import threading
 import time
 import json
 import os
+import queue
 from scipy import signal as scipy_signal
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton, QDial, QComboBox,
-                             QFileDialog, QMessageBox, QSlider, QGridLayout, QGroupBox)
-from PyQt5.QtCore import Qt, QObject, pyqtSignal
+                             QFileDialog, QMessageBox, QSlider, QGridLayout, QGroupBox,
+                             QProgressBar)
+from PyQt5.QtCore import Qt, QObject, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont
+import pyqtgraph as pg
 
 
 # Audio Processing Constants
@@ -606,6 +609,140 @@ class NoiseGenerator:
             return self.generate_white(num_samples)
 
 
+class SpectrumAnalyzerWindow(QMainWindow):
+    """Separate window for real-time FFT spectrum analyzer"""
+    def __init__(self, sample_rate=44100, parent=None):
+        super().__init__(parent)
+        self.sample_rate = sample_rate
+        self.fft_size = 2048  # FFT size (power of 2 for efficiency)
+
+        # Window setup
+        self.setWindowTitle("Spectrum Analyzer")
+        self.setMinimumSize(800, 400)
+        self.resize(1000, 500)
+
+        # Audio data queue (thread-safe communication from audio callback)
+        self.audio_queue = queue.Queue(maxsize=10)
+
+        # Create central widget and layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # Create PyQtGraph plot widget
+        self.plot_widget = pg.PlotWidget()
+        self.plot_widget.setBackground('k')  # Black background
+        self.plot_widget.setLabel('left', 'Level', units='dB')
+        self.plot_widget.setLabel('bottom', 'Frequency', units='Hz')
+
+        # Fixed Y-axis scale (standard dB range)
+        self.plot_widget.setYRange(-90, 100, padding=0)
+        self.plot_widget.getPlotItem().setLimits(yMin=-90, yMax=100)
+
+        # Fixed X-axis with conventional frequency breaks
+        self.plot_widget.setXRange(np.log10(20), np.log10(20000), padding=0)
+        self.plot_widget.setLogMode(x=True, y=False)
+
+        # Set conventional frequency tick marks (20, 50, 100, 200, 500, 1k, 2k, 5k, 10k, 20k)
+        freq_ticks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000]
+        freq_labels = ['20', '50', '100', '200', '500', '1k', '2k', '5k', '10k', '20k']
+        ax = self.plot_widget.getAxis('bottom')
+        ax.setTicks([[(freq, label) for freq, label in zip(freq_ticks, freq_labels)]])
+
+        # Standard dB tick marks
+        db_ticks = list(range(0, -100, 80))
+        ax_left = self.plot_widget.getAxis('left')
+        ax_left.setTicks([[(db, str(db)) for db in db_ticks]])
+
+        self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
+
+        # Create plot curve
+        self.curve = self.plot_widget.plot(pen=pg.mkPen('g', width=2))
+
+        layout.addWidget(self.plot_widget)
+
+        # Frequency bins for FFT
+        self.freqs = np.fft.rfftfreq(self.fft_size, 1 / self.sample_rate)
+
+        # Smoothing buffer for averaging FFT results
+        self.smoothing = 0.7  # Smoothing factor (0 = no smoothing, 1 = maximum smoothing)
+        self.magnitude_smooth = np.zeros(len(self.freqs))
+
+        # Timer for updating display (30 FPS)
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_spectrum)
+        self.timer.start(33)  # ~30 FPS
+
+    def process_audio(self, audio_data):
+        """Called from audio thread to pass audio data for analysis"""
+        try:
+            # Non-blocking put - drop data if queue is full (audio thread can't wait)
+            self.audio_queue.put_nowait(audio_data.copy())
+        except queue.Full:
+            pass  # Drop frame if queue is full
+
+    def update_spectrum(self):
+        """Update spectrum display (called by timer in UI thread)"""
+        # Get latest audio data from queue (non-blocking)
+        audio_data = None
+        try:
+            # Get all queued data, keep only the latest
+            while True:
+                audio_data = self.audio_queue.get_nowait()
+        except queue.Empty:
+            pass
+
+        if audio_data is None:
+            return  # No new data
+
+        # Pad or truncate to FFT size
+        if len(audio_data) < self.fft_size:
+            audio_data = np.pad(audio_data, (0, self.fft_size - len(audio_data)))
+        else:
+            audio_data = audio_data[:self.fft_size]
+
+        # Apply Hann window to reduce spectral leakage
+        windowed = audio_data * np.hanning(self.fft_size)
+
+        # Compute FFT
+        fft_result = np.fft.rfft(windowed)
+        magnitude = np.abs(fft_result)
+
+        # Convert to dB scale (with floor to avoid log(0))
+        magnitude_db = 20 * np.log10(magnitude + 1e-10)
+
+        # Apply smoothing (exponential moving average)
+        self.magnitude_smooth = (self.smoothing * self.magnitude_smooth +
+                                 (1 - self.smoothing) * magnitude_db)
+
+        # Update plot (skip DC and very low frequencies for better display)
+        # Find index for 20 Hz
+        start_idx = np.searchsorted(self.freqs, 20)
+        self.curve.setData(self.freqs[start_idx:], self.magnitude_smooth[start_idx:])
+
+    def keyPressEvent(self, event):
+        """Forward keyboard events to parent (main synth window) for MIDI control"""
+        if self.parent():
+            self.parent().keyPressEvent(event)
+        else:
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        """Forward keyboard release events to parent (main synth window) for MIDI control"""
+        if self.parent():
+            self.parent().keyReleaseEvent(event)
+        else:
+            super().keyReleaseEvent(event)
+
+    def resizeEvent(self, event):
+        """Handle window resize to maintain proper spectrum display"""
+        super().resizeEvent(event)
+        # Re-apply fixed axis ranges after resize to ensure they're maintained
+        self.plot_widget.setYRange(-90, 0, padding=0)
+        self.plot_widget.setXRange(np.log10(20), np.log10(20000), padding=0)
+
+
 class SineWaveGenerator(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -729,6 +866,11 @@ class SineWaveGenerator(QMainWindow):
         self.current_preset_index = 0
         self.current_preset_name = "Init"
 
+        # Level meter tracking
+        self.peak_level = 0.0  # Current peak level (0.0 to 1.0+)
+        self.clip_detected = False  # True if signal clipped (>=1.0)
+        self.clip_hold_counter = 0  # Frames to hold clip indicator
+
         # Initialize UI
         self.init_ui()
 
@@ -745,6 +887,9 @@ class SineWaveGenerator(QMainWindow):
         self.setWindowTitle("Triple Oscillator Synth")
         self.setMinimumSize(1000, 900)
         self.resize(1200, 900)
+
+        # Create spectrum analyzer window (hidden initially)
+        self.spectrum_analyzer_window = SpectrumAnalyzerWindow(sample_rate=self.sample_rate, parent=self)
 
         # Create central widget and main layout
         central_widget = QWidget()
@@ -1050,6 +1195,32 @@ class SineWaveGenerator(QMainWindow):
         midi_layout.addLayout(preset_browser_layout)
 
         midi_layout.addStretch(1)
+
+        # Spectrum Analyzer button
+        spectrum_button = QPushButton("Spectrum")
+        spectrum_button.setFont(QFont("Arial", 9))
+        spectrum_button.setFixedSize(80, 35)
+        spectrum_button.setStyleSheet("""
+            QPushButton {
+                background-color: #065f46;
+                color: white;
+                border: 2px solid #10b981;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #047857;
+            }
+            QPushButton:pressed {
+                background-color: #064e3b;
+            }
+        """)
+        spectrum_button.clicked.connect(self.toggle_spectrum_analyzer)
+        midi_layout.addWidget(spectrum_button)
+
+        # Level meter
+        self.create_level_meter()
+        midi_layout.addWidget(self.level_meter_widget)
+
         main_layout.addLayout(midi_layout)
 
         # TWO-ROW HORIZONTAL LAYOUT
@@ -1153,6 +1324,116 @@ class SineWaveGenerator(QMainWindow):
                 selection-background-color: #555555;
             }
         """)
+
+    def toggle_spectrum_analyzer(self):
+        """Toggle spectrum analyzer window visibility"""
+        if self.spectrum_analyzer_window.isVisible():
+            self.spectrum_analyzer_window.hide()
+        else:
+            self.spectrum_analyzer_window.show()
+            self.spectrum_analyzer_window.raise_()
+            self.spectrum_analyzer_window.activateWindow()
+
+    def create_level_meter(self):
+        """Create a compact level meter with clip indicator"""
+        self.level_meter_widget = QWidget()
+        layout = QHBoxLayout(self.level_meter_widget)
+        layout.setContentsMargins(5, 0, 5, 0)
+        layout.setSpacing(5)
+
+        # Label
+        label = QLabel("Level:")
+        label.setFont(QFont("Arial", 9))
+        layout.addWidget(label)
+
+        # Progress bar for level
+        self.level_meter_bar = QProgressBar()
+        self.level_meter_bar.setOrientation(Qt.Horizontal)
+        self.level_meter_bar.setFixedSize(100, 20)
+        self.level_meter_bar.setRange(0, 100)
+        self.level_meter_bar.setValue(0)
+        self.level_meter_bar.setTextVisible(False)
+        self.level_meter_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #555555;
+                border-radius: 3px;
+                background-color: #1a1a1a;
+            }
+            QProgressBar::chunk {
+                background-color: #10b981;
+                border-radius: 2px;
+            }
+        """)
+        layout.addWidget(self.level_meter_bar)
+
+        # Clip indicator
+        self.clip_indicator = QLabel("CLIP")
+        self.clip_indicator.setFont(QFont("Arial", 9, QFont.Bold))
+        self.clip_indicator.setFixedSize(40, 20)
+        self.clip_indicator.setAlignment(Qt.AlignCenter)
+        self.clip_indicator.setStyleSheet("""
+            QLabel {
+                background-color: #1a1a1a;
+                color: #555555;
+                border: 1px solid #555555;
+                border-radius: 3px;
+            }
+        """)
+        layout.addWidget(self.clip_indicator)
+
+        # Add timer to update level meter (30 FPS)
+        self.level_meter_timer = QTimer()
+        self.level_meter_timer.timeout.connect(self.update_level_meter)
+        self.level_meter_timer.start(33)  # ~30 FPS
+
+    def update_level_meter(self):
+        """Update level meter display"""
+        # Update progress bar (0-100 scale)
+        level_percent = int(self.peak_level * 100)
+        self.level_meter_bar.setValue(level_percent)
+
+        # Update chunk color based on absolute threshold (not relative)
+        if self.peak_level >= 0.85:
+            # Red zone (85-100%)
+            chunk_color = "#ef4444"
+        elif self.peak_level >= 0.70:
+            # Yellow zone (70-85%)
+            chunk_color = "#f59e0b"
+        else:
+            # Green zone (0-70%)
+            chunk_color = "#10b981"
+
+        self.level_meter_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid #555555;
+                border-radius: 3px;
+                background-color: #1a1a1a;
+            }}
+            QProgressBar::chunk {{
+                background-color: {chunk_color};
+                border-radius: 2px;
+            }}
+        """)
+
+        # Update clip indicator
+        if self.clip_detected:
+            self.clip_indicator.setStyleSheet("""
+                QLabel {
+                    background-color: #ef4444;
+                    color: white;
+                    border: 1px solid #dc2626;
+                    border-radius: 3px;
+                }
+            """)
+        else:
+            self.clip_indicator.setStyleSheet("""
+                QLabel {
+                    background-color: #1a1a1a;
+                    color: #555555;
+                    border: 1px solid #555555;
+                    border-radius: 3px;
+                }
+            """)
 
     def create_group_box(self, title):
         """Create a styled QGroupBox"""
@@ -3333,6 +3614,23 @@ class SineWaveGenerator(QMainWindow):
         # Final safety clamp to prevent any clipping artifacts (soft limit at ±1.0)
         # This protects against edge cases where filter resonance or noise might push levels too high
         final_output = np.clip(dc_blocked, -1.0, 1.0)
+
+        # Track peak level for level meter (before clipping)
+        current_peak = np.max(np.abs(dc_blocked))
+        self.peak_level = max(self.peak_level * 0.95, current_peak)  # Fast attack, slow decay
+
+        # Detect clipping (signal reached or exceeded ±1.0 before clipping)
+        if current_peak >= 1.0:
+            self.clip_detected = True
+            self.clip_hold_counter = int(self.sample_rate * 1.0)  # Hold for 1 second
+        elif self.clip_hold_counter > 0:
+            self.clip_hold_counter -= frames
+            if self.clip_hold_counter <= 0:
+                self.clip_detected = False
+
+        # Send audio to spectrum analyzer for visualization
+        if hasattr(self, 'spectrum_analyzer_window'):
+            self.spectrum_analyzer_window.process_audio(final_output)
 
         # Output stereo
         outdata[:, 0] = final_output

@@ -1,0 +1,84 @@
+{
+  "version": "1.1",
+  "oscillators": {
+    "osc1": {
+      "enabled": true,
+      "waveform": "Square",
+      "frequency": 349.2282314330039,
+      "detune": 0.0,
+      "octave": 1,
+      "pulse_width": 0.69,
+      "gain": 0.27
+    },
+    "osc2": {
+      "enabled": true,
+      "waveform": "Square",
+      "frequency": 174.61411571650194,
+      "detune": 0.0,
+      "octave": 0,
+      "pulse_width": 0.31,
+      "gain": 0.31
+    },
+    "osc3": {
+      "enabled": true,
+      "waveform": "Sawtooth",
+      "frequency": 350.8457428930067,
+      "detune": 8.0,
+      "octave": 1,
+      "pulse_width": 0.5,
+      "gain": 0.55
+    }
+  },
+  "voice_mode": "Poly",
+  "playback_mode": "chromatic",
+  "envelope": {
+    "attack": 2.0,
+    "decay": 1.58,
+    "sustain": 0.6,
+    "release": 2.9
+  },
+  "filter": {
+    "cutoff": 1008.0,
+    "resonance": 0.0
+  },
+  "lfo": {
+    "waveform": "Sine",
+    "rate_mode": "Free",
+    "rate_hz": 2.0,
+    "sync_division": "1/4",
+    "bpm": 120.0,
+    "depth": {
+      "osc1_pitch": 0.0,
+      "osc2_pitch": 0.0,
+      "osc3_pitch": 0.0,
+      "osc1_pw": 0.47,
+      "osc2_pw": 0.46,
+      "osc3_pw": 0.0,
+      "filter_cutoff": 0.0,
+      "osc1_volume": 0.0,
+      "osc2_volume": 0.0,
+      "osc3_volume": 0.0
+    },
+    "mix": {
+      "osc1_pitch": 1.0,
+      "osc2_pitch": 1.0,
+      "osc3_pitch": 1.0,
+      "osc1_pw": 0.75,
+      "osc2_pw": 0.74,
+      "osc3_pw": 1.0,
+      "filter_cutoff": 1.0,
+      "osc1_volume": 1.0,
+      "osc2_volume": 1.0,
+      "osc3_volume": 1.0
+    }
+  },
+  "noise": {
+    "enabled": false,
+    "type": "White",
+    "gain": 0.0
+  },
+  "master": {
+    "volume": 0.5,
+    "power": true
+  }
+}

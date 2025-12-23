@@ -112,6 +112,27 @@ I strongly discourage using the code in this repository for the purpose of train
   - **Drone Mode**: Triggered by noise ON/OFF button
 - **4th Oscillator**: Behaves as an additional sound source alongside the 3 main oscillators
 
+### Spectrum Analyzer
+- **Real-time FFT Analysis**: 2048-point FFT with 30 FPS display
+- **Popup Window**: Resizable landscape window with keyboard MIDI passthrough
+- **Fixed Scales**: Industry-standard frequency and amplitude ranges
+  - Y-axis: -90 to +100 dB (fixed, non-dynamic)
+  - X-axis: 20 Hz to 20 kHz logarithmic scale
+- **Conventional Frequency Marks**: 20, 50, 100, 200, 500, 1k, 2k, 5k, 10k, 20k Hz
+- **Hann Windowing**: Reduces spectral leakage for accurate frequency representation
+- **Exponential Smoothing**: Smoothed display for better readability
+- **Keyboard-Friendly**: Forward all keyboard events to main synth window for uninterrupted playing
+
+### Level Meter
+- **Real-time Peak Display**: Horizontal bar meter with fast attack, slow decay
+- **Absolute Color Thresholds**: Professional metering standards
+  - Green: 0-70% (safe operating level)
+  - Yellow: 70-85% (approaching limit)
+  - Red: 85-100% (near clipping)
+- **Clip Indicator**: Red "CLIP" light when signal reaches ±1.0
+- **1-Second Hold**: Clip indicator remains visible for 1 second after clipping
+- **Pre-Clipping Detection**: Monitors signal before safety limiter for accurate indication
+
 ### Preset Management
 - **Save Presets**: Save all synth settings to JSON files
 - **Load Presets**: Recall saved settings instantly
@@ -456,6 +477,12 @@ This project started as a simple sine wave generator and evolved into a full sub
     - **Vectorized Processing**: DC blocker and PolyBLEP now use NumPy operations (100-1000x faster, eliminates crackling)
     - **Filter Stability**: Removed state recomputation on coefficient changes, preventing pops during parameter sweeps
     - **Output Protection**: Final clipping protection prevents overload artifacts
+21. **Spectrum Analyzer & Level Meter**: Real-time audio analysis and monitoring
+    - **FFT Spectrum Analyzer**: Popup window with 2048-point FFT, fixed scales (-90 to +100 dB, 20 Hz-20 kHz)
+    - **Keyboard MIDI Passthrough**: Spectrum window forwards keyboard events for uninterrupted playing
+    - **Professional Metering**: Color-coded level meter (green/yellow/red) with absolute thresholds
+    - **Clip Detection**: 1-second hold clip indicator for signal overload detection
+    - **Resizable Display**: Spectrum window maintains fixed scales when resized
 
 ## Roadmap
 
