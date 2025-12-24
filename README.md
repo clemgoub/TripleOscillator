@@ -75,12 +75,18 @@ I strongly discourage using the code in this repository for the purpose of train
 - **Real-time Updates**: ADSR changes affect all active voices immediately
 - **Anti-Click Protection**: Minimum 5ms attack prevents discontinuities
 
-### Low-Pass Filter
-- **Cutoff Frequency**: 20-5000 Hz - Remove frequencies above the cutoff
-- **Resonance**: 0-100% - Emphasize the cutoff frequency for character (Q range 0.707-10)
-- **Biquad Filter Design**: Professional-quality filtering with stability protection
-- **Artifact-Free**: Advanced state management prevents crackling at high resonance
-- **Smooth Parameter Changes**: No clicks when sweeping cutoff or resonance
+### Multi-Mode Moog Ladder Filter
+- **Filter Modes**: LP (Low-Pass), BP (Band-Pass), HP (High-Pass) with dedicated toggle buttons
+- **Cutoff Frequency**: 20-20000 Hz - Full audible spectrum range (logarithmic scale)
+- **Resonance**: 0-100% - Emphasize the cutoff frequency for classic analog character
+- **4-Pole Ladder Design**: Moog-style cascade topology with 24dB/octave rolloff (LP mode)
+- **Analog-Style Response**:
+  - LP: 24dB/octave steep rolloff from 4th stage
+  - BP: 12dB/octave with resonant peak from 2nd stage
+  - HP: Proper high-pass by subtraction with aggressive bass removal
+- **Resonance Feedback**: Classic Moog topology with feedback from output to input
+- **Artifact-Free**: Advanced state management prevents instability at high resonance
+- **Smooth Parameter Changes**: No clicks when sweeping cutoff, resonance, or switching modes
 - **Coefficient Caching**: Only recalculates when parameters change for optimal performance
 
 ### LFO (Low-Frequency Oscillator)
@@ -221,7 +227,7 @@ classDiagram
         +unison_count: int
         +env: EnvelopeGenerator
         +noise: NoiseGenerator
-        +filter: LowPassFilter
+        +filter: MoogLadderFilter
         +midi_handler: MIDIHandler
         +init_ui()
         +audio_callback()
@@ -286,10 +292,16 @@ classDiagram
         +process(num_samples)
     }
 
-    class LowPassFilter {
+    class MoogLadderFilter {
         +cutoff: float
         +resonance: float
-        +zi: array
+        +filter_mode: str
+        +stage1_state: float
+        +stage2_state: float
+        +stage3_state: float
+        +stage4_state: float
+        +g: float
+        +feedback_gain: float
         +process(input_signal)
         +reset()
     }
@@ -297,7 +309,7 @@ classDiagram
     SineWaveGenerator "1" --> "1" EnvelopeGenerator : template
     SineWaveGenerator "1" --> "8" Voice : voice pool
     SineWaveGenerator "1" --> "1" NoiseGenerator : contains
-    SineWaveGenerator "1" --> "1" LowPassFilter : contains
+    SineWaveGenerator "1" --> "1" MoogLadderFilter : contains
     SineWaveGenerator "1" --> "1" MIDIHandler : contains
     Voice "1" --> "1" EnvelopeGenerator : post-mixer envelope
     NoiseGenerator "1" --> "1" EnvelopeGenerator : noise envelope
@@ -320,7 +332,7 @@ graph LR
     V2 --> MIX
     V3 --> MIX
 
-    MIX --> FILT[Low-Pass Filter<br/>Cutoff + Resonance<br/>Stable Q≤10]
+    MIX --> FILT[Moog Ladder Filter<br/>LP/BP/HP Modes<br/>Cutoff + Resonance]
     FILT --> OUT[Audio Output<br/>Stereo 44.1kHz]
 
     UI[UI Controls] -.->|voice mode| VM
@@ -343,12 +355,12 @@ sequenceDiagram
     participant UI as User Interface
     participant VM as Voice Manager
     participant VOICE as Voice (with 3 OSC + 1 ENV)
-    participant FILT as Low-Pass Filter
+    participant FILT as Moog Ladder Filter
     participant OUT as Audio Output
 
     UI->>VM: Set voice mode (MONO/POLY/UNI)
     UI->>VOICE: Set ADSR params (all voices)
-    UI->>FILT: Set cutoff, resonance
+    UI->>FILT: Set mode (LP/BP/HP), cutoff, resonance
 
     INPUT->>VM: Note On (MIDI note 60, velocity 100)
 
@@ -371,7 +383,7 @@ sequenceDiagram
         VOICE->>VM: Return voice audio
         VM->>VM: Sum all active voices
         VM->>VM: Add noise generator (if enabled, with envelope)
-        VM->>FILT: Apply low-pass filter (stable biquad, Q≤15)
+        VM->>FILT: Apply Moog ladder filter (LP/BP/HP mode)
         FILT->>OUT: Output stereo audio
     end
 
@@ -411,11 +423,13 @@ sequenceDiagram
 - Independent envelope synchronized with oscillator ADSR
 - Behaves as 4th oscillator with chromatic/drone mode support
 
-**Low-Pass Filter**
-- Biquad (2-pole) IIR filter design with resonance
-- Adjustable cutoff frequency (20-5000 Hz) and resonance (Q 0.707-10)
-- **Stability protection**: Conservative Q limiting prevents self-oscillation
-- **Artifact-free operation**: Proper state management eliminates crackling
+**Moog Ladder Filter**
+- 4-pole cascade topology with resonance feedback (classic Moog design)
+- Three filter modes: LP (24dB/octave), BP (12dB/octave), HP (high-pass by subtraction)
+- Adjustable cutoff frequency (20-20000 Hz) and resonance (0-100%)
+- **Proper HP implementation**: Uses correct input reference for mathematically accurate high-pass response
+- **Stability protection**: Feedback gain limiting prevents self-oscillation
+- **Artifact-free operation**: State management eliminates instability at high resonance
 - Applied globally after voice and noise mixing
 
 ## Project Structure
@@ -483,6 +497,13 @@ This project started as a simple sine wave generator and evolved into a full sub
     - **Professional Metering**: Color-coded level meter (green/yellow/red) with absolute thresholds
     - **Clip Detection**: 1-second hold clip indicator for signal overload detection
     - **Resizable Display**: Spectrum window maintains fixed scales when resized
+22. **Moog Ladder Filter Implementation**: Replaced biquad with classic 4-pole Moog ladder topology
+    - **Three Filter Modes**: LP (24dB/octave), BP (12dB/octave), HP (high-pass) with toggle buttons
+    - **Extended Cutoff Range**: 20-20kHz (full audible spectrum) with logarithmic scaling
+    - **Resonance Feedback**: Classic Moog topology with feedback from output to input (0-3.5 range)
+    - **Critical Bug Fix**: Corrected HP mode to use proper input reference (input_sample vs input_signal)
+    - **Analog-Style Response**: LP from stage 4, BP from stage 2, HP by subtraction with correct phase
+    - **Preset Compatibility**: Version 1.2 format saves filter mode, backward compatible with old presets
 
 ## Roadmap
 
@@ -495,9 +516,9 @@ Future enhancements:
 - [x] Computer keyboard input for playing notes
 - [x] LFO (Low-Frequency Oscillator) for modulation
 - [x] Create comprehensive demo presets (Init, SuperSaw)
+- [x] Additional filter types (LP/BP/HP multi-mode Moog ladder filter)
 - [ ] Fine tune knobs
 - [ ] Center tune knobs % to top instead of right
-- [ ] Additional filter types (high-pass, band-pass)
 - [ ] Effects (reverb, delay, distortion)
 - [ ] VST plugin export
 
