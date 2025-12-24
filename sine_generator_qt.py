@@ -301,83 +301,128 @@ class EnvelopeGenerator:
         return output
 
 
-class LowPassFilter:
-    """Simple low-pass filter with resonance"""
+class MoogLadderFilter:
+    """
+    Moog-style 4-pole ladder filter with 24dB/octave rolloff.
+
+    Implements a classic analog filter topology with resonance feedback.
+    Supports three modes:
+    - LP (Low-Pass): Output from 4th stage (24dB/octave)
+    - BP (Band-Pass): Output from 2nd stage (12dB/octave)
+    - HP (High-Pass): Input minus LP output
+
+    Parameters:
+        cutoff: Frequency in Hz (20-20000)
+        resonance: Resonance amount (0-1), where 1 approaches self-oscillation
+        filter_mode: "LP", "BP", or "HP"
+    """
     def __init__(self, sample_rate):
         self.sample_rate = sample_rate
         self.cutoff = 5000.0  # Hz
         self.resonance = 0.0  # 0-1
+        self.filter_mode = "LP"  # "LP", "BP", or "HP"
 
-        # Filter state (zi format for scipy)
-        self.zi = None
-        self.b = None
-        self.a = None
+        # 4 state variables (one per pole)
+        self.stage1_state = 0.0
+        self.stage2_state = 0.0
+        self.stage3_state = 0.0
+        self.stage4_state = 0.0
+
+        # Coefficient caching for performance
         self.last_cutoff = None
         self.last_resonance = None
+        self.last_mode = None
+        self.g = None  # One-pole coefficient
+        self.feedback_gain = None  # Resonance feedback
 
     def reset(self):
         """Reset filter state to prevent artifacts"""
-        self.zi = None
+        self.stage1_state = 0.0
+        self.stage2_state = 0.0
+        self.stage3_state = 0.0
+        self.stage4_state = 0.0
+
+    def _calculate_coefficients(self):
+        """Calculate filter coefficients from cutoff and resonance"""
+        # Normalize cutoff frequency (avoid Nyquist aliasing)
+        freq = np.clip(self.cutoff / self.sample_rate, FREQ_MIN_NORMALIZED, FREQ_MAX_NORMALIZED)
+
+        # Calculate one-pole coefficient (g) using bilinear transform with prewarp
+        omega = 2.0 * np.pi * freq
+        # Prewarp for better accuracy at high frequencies
+        omega_warped = np.tan(omega / 2.0)
+        self.g = omega_warped / (1.0 + omega_warped)
+
+        # Resonance feedback gain (0-4 range typical for Moog)
+        # Map 0-1 resonance to 0-3.5, with headroom to prevent signal kill
+        # At resonance=1.0, should approach self-oscillation but remain musical
+        self.feedback_gain = self.resonance * 3.5
+        # Clamp to prevent instability
+        self.feedback_gain = np.clip(self.feedback_gain, 0.0, 3.5)
+
+        # Cache parameter values
+        self.last_cutoff = self.cutoff
+        self.last_resonance = self.resonance
+        self.last_mode = self.filter_mode
 
     def process(self, input_signal):
-        """Apply low-pass filter with proper state preservation and stability"""
-        # Only recalculate coefficients if cutoff or resonance changed (performance optimization)
-        if self.last_cutoff != self.cutoff or self.last_resonance != self.resonance:
-            # Calculate filter coefficients
-            freq = np.clip(self.cutoff / self.sample_rate, FREQ_MIN_NORMALIZED, FREQ_MAX_NORMALIZED)
+        """Apply Moog ladder filter with state preservation"""
+        # Recalculate coefficients if parameters changed
+        if (self.last_cutoff != self.cutoff or
+            self.last_resonance != self.resonance or
+            self.last_mode != self.filter_mode):
+            self._calculate_coefficients()
 
-            # Conservative Q limiting to prevent instability and self-oscillation
-            # Map 0-1 resonance to Q range Q_BUTTERWORTH to Q_MAX
-            # Q=Q_BUTTERWORTH is Butterworth (maximally flat), higher Q adds resonance
-            q = Q_BUTTERWORTH + self.resonance * Q_SCALE
-            q = np.clip(q, Q_MIN, Q_MAX)  # Hard limit for stability
+        num_samples = len(input_signal)
+        output = np.zeros(num_samples, dtype=np.float32)
 
-            omega = 2.0 * np.pi * freq
-            sn = np.sin(omega)
-            cs = np.cos(omega)
-            alpha = sn / (2.0 * q)
+        # Process sample-by-sample (necessary for feedback loop)
+        for i in range(num_samples):
+            # Input with feedback subtraction (classic Moog topology)
+            input_sample = input_signal[i] - self.feedback_gain * self.stage4_state
 
-            a0 = 1.0 + alpha
-            a1 = -2.0 * cs
-            a2 = 1.0 - alpha
-            b0 = (1.0 - cs) / 2.0
-            b1 = 1.0 - cs
-            b2 = (1.0 - cs) / 2.0
+            # Stage 1: one-pole low-pass
+            self.stage1_state += self.g * (input_sample - self.stage1_state)
 
-            # Normalize
-            a1 /= a0
-            a2 /= a0
-            b0 /= a0
-            b1 /= a0
-            b2 /= a0
+            # Stage 2: one-pole low-pass
+            self.stage2_state += self.g * (self.stage1_state - self.stage2_state)
 
-            # Build and cache coefficient arrays
-            self.b = [b0, b1, b2]
-            self.a = [1.0, a1, a2]
+            # Stage 3: one-pole low-pass
+            self.stage3_state += self.g * (self.stage2_state - self.stage3_state)
 
-            # Update cached parameter values
-            self.last_cutoff = self.cutoff
-            self.last_resonance = self.resonance
+            # Stage 4: one-pole low-pass
+            self.stage4_state += self.g * (self.stage3_state - self.stage4_state)
 
-            # Note: We keep the old filter state (zi) when coefficients change
-            # The state will adapt naturally over a few samples without causing clicks
+            # Mode-dependent output selection (standard Moog approach)
+            if self.filter_mode == "LP":
+                # Low-pass: output of 4th stage (24dB/octave)
+                output[i] = self.stage4_state
+            elif self.filter_mode == "BP":
+                # Band-pass: output of 2nd stage (12dB/octave LP with resonance peak)
+                output[i] = self.stage2_state
+            elif self.filter_mode == "HP":
+                # High-pass: input minus LP output
+                output[i] = input_signal[i] - self.stage4_state
 
-        # Initialize state only on first run (using zero for click-free startup)
-        if self.zi is None:
-            self.zi = scipy_signal.lfilter_zi(self.b, self.a) * 0.0
+        # Simple output gain to compensate for 4-pole attenuation (same for all modes)
+        # Moog filters naturally attenuate; a modest 2x boost is typical
+        output = output * 2.0
 
-        # Apply filter with state preservation using cached coefficients
-        output, self.zi = scipy_signal.lfilter(self.b, self.a, input_signal, zi=self.zi)
-
-        # Aggressive output clamping to prevent filter blowup
+        # Apply stability safeguards (preserve from original implementation)
         output = np.clip(output, FILTER_OUTPUT_MIN, FILTER_OUTPUT_MAX)
 
-        # Clamp filter state to prevent runaway values (tighter bounds)
-        self.zi = np.clip(self.zi, FILTER_STATE_MIN, FILTER_STATE_MAX)
+        # Clamp state variables
+        self.stage1_state = np.clip(self.stage1_state, FILTER_STATE_MIN, FILTER_STATE_MAX)
+        self.stage2_state = np.clip(self.stage2_state, FILTER_STATE_MIN, FILTER_STATE_MAX)
+        self.stage3_state = np.clip(self.stage3_state, FILTER_STATE_MIN, FILTER_STATE_MAX)
+        self.stage4_state = np.clip(self.stage4_state, FILTER_STATE_MIN, FILTER_STATE_MAX)
 
-        # Check for NaN or Inf and reset if found (safety)
-        if np.any(np.isnan(self.zi)) or np.any(np.isinf(self.zi)):
-            self.zi = scipy_signal.lfilter_zi(self.b, self.a) * 0.0
+        # NaN/Inf detection and reset
+        if (np.isnan(self.stage1_state) or np.isinf(self.stage1_state) or
+            np.isnan(self.stage2_state) or np.isinf(self.stage2_state) or
+            np.isnan(self.stage3_state) or np.isinf(self.stage3_state) or
+            np.isnan(self.stage4_state) or np.isinf(self.stage4_state)):
+            self.reset()
 
         return output
 
@@ -797,7 +842,7 @@ class SineWaveGenerator(QMainWindow):
         self.env.force_reset()
 
         # Filter
-        self.filter = LowPassFilter(self.sample_rate)
+        self.filter = MoogLadderFilter(self.sample_rate)
         self.filter_cutoff_base = 5000.0  # Store the "dry" cutoff from knob (not modulated)
 
         # DC blocking filter state will be initialized on first use (no need to pre-allocate)
@@ -885,8 +930,8 @@ class SineWaveGenerator(QMainWindow):
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle("Triple Oscillator Synth")
-        self.setMinimumSize(1000, 900)
-        self.resize(1200, 900)
+        self.setMinimumSize(1020, 900)
+        self.resize(1220, 900)
 
         # Create spectrum analyzer window (hidden initially)
         self.spectrum_analyzer_window = SpectrumAnalyzerWindow(sample_rate=self.sample_rate, parent=self)
@@ -1196,10 +1241,14 @@ class SineWaveGenerator(QMainWindow):
 
         midi_layout.addStretch(1)
 
-        # Spectrum Analyzer button
+        # Vertical layout for Spectrum button and Level meter (stacked)
+        analysis_layout = QVBoxLayout()
+        analysis_layout.setSpacing(5)
+
+        # Spectrum Analyzer button (on top)
         spectrum_button = QPushButton("Spectrum")
         spectrum_button.setFont(QFont("Arial", 9))
-        spectrum_button.setFixedSize(80, 35)
+        spectrum_button.setFixedSize(150, 25)
         spectrum_button.setStyleSheet("""
             QPushButton {
                 background-color: #065f46;
@@ -1215,11 +1264,13 @@ class SineWaveGenerator(QMainWindow):
             }
         """)
         spectrum_button.clicked.connect(self.toggle_spectrum_analyzer)
-        midi_layout.addWidget(spectrum_button)
+        analysis_layout.addWidget(spectrum_button)
 
-        # Level meter
+        # Level meter (below)
         self.create_level_meter()
-        midi_layout.addWidget(self.level_meter_widget)
+        analysis_layout.addWidget(self.level_meter_widget)
+
+        midi_layout.addLayout(analysis_layout)
 
         main_layout.addLayout(midi_layout)
 
@@ -2064,13 +2115,91 @@ class SineWaveGenerator(QMainWindow):
         layout.setSpacing(5)
         layout.setContentsMargins(5, 5, 5, 5)
 
+        # Filter mode buttons (LP/BP/HP)
+        mode_buttons_layout = QHBoxLayout()
+        mode_buttons_layout.setSpacing(8)
+        mode_buttons_layout.addStretch(1)
+
+        # LP Button
+        self.filter_lp_button = QPushButton("LP")
+        self.filter_lp_button.setFont(QFont("Arial", 8, QFont.Bold))
+        self.filter_lp_button.setFixedSize(35, 25)
+        self.filter_lp_button.setCheckable(True)
+        self.filter_lp_button.setChecked(True)  # Default mode
+        self.filter_lp_button.clicked.connect(lambda: self.set_filter_mode("LP"))
+        self.filter_lp_button.setStyleSheet("""
+            QPushButton {
+                background-color: #fc5b42;
+                color: black;
+                border: none;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #fc6b52;
+            }
+            QPushButton:!checked {
+                background-color: #3c3c3c;
+                color: #888888;
+            }
+        """)
+        mode_buttons_layout.addWidget(self.filter_lp_button)
+
+        # BP Button
+        self.filter_bp_button = QPushButton("BP")
+        self.filter_bp_button.setFont(QFont("Arial", 8, QFont.Bold))
+        self.filter_bp_button.setFixedSize(35, 25)
+        self.filter_bp_button.setCheckable(True)
+        self.filter_bp_button.clicked.connect(lambda: self.set_filter_mode("BP"))
+        self.filter_bp_button.setStyleSheet("""
+            QPushButton {
+                background-color: #fc5b42;
+                color: black;
+                border: none;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #fc6b52;
+            }
+            QPushButton:!checked {
+                background-color: #3c3c3c;
+                color: #888888;
+            }
+        """)
+        mode_buttons_layout.addWidget(self.filter_bp_button)
+
+        # HP Button
+        self.filter_hp_button = QPushButton("HP")
+        self.filter_hp_button.setFont(QFont("Arial", 8, QFont.Bold))
+        self.filter_hp_button.setFixedSize(35, 25)
+        self.filter_hp_button.setCheckable(True)
+        self.filter_hp_button.clicked.connect(lambda: self.set_filter_mode("HP"))
+        self.filter_hp_button.setStyleSheet("""
+            QPushButton {
+                background-color: #fc5b42;
+                color: black;
+                border: none;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #fc6b52;
+            }
+            QPushButton:!checked {
+                background-color: #3c3c3c;
+                color: #888888;
+            }
+        """)
+        mode_buttons_layout.addWidget(self.filter_hp_button)
+
+        mode_buttons_layout.addStretch(1)
+        layout.addLayout(mode_buttons_layout)
+
         # Knobs layout
         knobs_layout = QHBoxLayout()
         knobs_layout.setSpacing(15)
 
-        # Cutoff (Large: 80x80, use 0-100 range internally, scale to 20-5000 logarithmically)
+        # Cutoff (Large: 80x80, use 0-100 range internally, scale to 20-20000 logarithmically)
         cutoff_container = self.create_knob_with_label("Cutoff", 0, 100, 100,
-                                                        lambda v: self.update_filter('cutoff', int(20 * (250 ** (v/100)))), size=80)
+                                                        lambda v: self.update_filter('cutoff', int(20 * (1000 ** (v/100)))), size=80)
         knobs_layout.addWidget(cutoff_container)
         self.cutoff_knob = cutoff_container.findChild(QDial)
         self.cutoff_label_value = cutoff_container.findChild(QLabel, "value_label")
@@ -2552,6 +2681,16 @@ class SineWaveGenerator(QMainWindow):
         elif param == 'resonance':
             self.filter.resonance = value / 100.0
 
+    def set_filter_mode(self, mode):
+        """Set filter mode (LP/BP/HP) with mutual exclusion"""
+        # Update filter object
+        self.filter.filter_mode = mode
+
+        # Update button states (mutual exclusion)
+        self.filter_lp_button.setChecked(mode == "LP")
+        self.filter_bp_button.setChecked(mode == "BP")
+        self.filter_hp_button.setChecked(mode == "HP")
+
     def save_preset(self):
         """Save current settings to a preset file"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -2580,7 +2719,7 @@ class SineWaveGenerator(QMainWindow):
 
         # Create preset data structure
         preset = {
-            "version": "1.1",  # Incremented: now saves actual on/off states
+            "version": "1.2",  # Incremented: now saves filter mode
             "oscillators": {
                 "osc1": {
                     "enabled": self.osc1_on,  # Save actual runtime on/off state
@@ -2620,7 +2759,8 @@ class SineWaveGenerator(QMainWindow):
             },
             "filter": {
                 "cutoff": self.filter.cutoff,
-                "resonance": self.filter.resonance
+                "resonance": self.filter.resonance,
+                "mode": self.filter.filter_mode
             },
             "lfo": {
                 "waveform": self.lfo.waveform,
@@ -2744,6 +2884,7 @@ class SineWaveGenerator(QMainWindow):
             self.filter_cutoff_base = filt.get("cutoff", 5000.0)
             self.filter.cutoff = self.filter_cutoff_base  # Set both base and actual
             self.filter.resonance = filt.get("resonance", 0.0)
+            self.filter.filter_mode = filt.get("mode", "LP")  # Default to LP for old presets
 
             # Master settings
             master = preset.get("master", {})
@@ -2928,6 +3069,7 @@ class SineWaveGenerator(QMainWindow):
             self.filter_cutoff_base = filt.get("cutoff", 5000.0)
             self.filter.cutoff = self.filter_cutoff_base  # Set both base and actual
             self.filter.resonance = filt.get("resonance", 0.0)
+            self.filter.filter_mode = filt.get("mode", "LP")  # Default to LP for old presets
 
             # Master settings
             master = preset.get("master", {})
@@ -3111,15 +3253,20 @@ class SineWaveGenerator(QMainWindow):
         # Update filter knobs
         self.cutoff_knob.blockSignals(True)
         self.resonance_knob.blockSignals(True)
-        # Cutoff: reverse the logarithmic formula (cutoff_hz = 20 * (250 ** (v/100)))
-        # v = 100 * log(cutoff_hz / 20) / log(250)
+        # Cutoff: reverse the logarithmic formula (cutoff_hz = 20 * (1000 ** (v/100)))
+        # v = 100 * log(cutoff_hz / 20) / log(1000)
         if self.filter.cutoff > 0:
-            cutoff_knob_value = int(100 * np.log(self.filter.cutoff / 20) / np.log(250))
+            cutoff_knob_value = int(100 * np.log(self.filter.cutoff / 20) / np.log(1000))
             self.cutoff_knob.setValue(cutoff_knob_value)
         # Resonance: direct percentage
         self.resonance_knob.setValue(int(self.filter.resonance * 100))
         self.cutoff_knob.blockSignals(False)
         self.resonance_knob.blockSignals(False)
+
+        # Update filter mode buttons
+        self.filter_lp_button.setChecked(self.filter.filter_mode == "LP")
+        self.filter_bp_button.setChecked(self.filter.filter_mode == "BP")
+        self.filter_hp_button.setChecked(self.filter.filter_mode == "HP")
 
         # Update LFO waveform and mode
         self.lfo_waveform_combo.blockSignals(True)
