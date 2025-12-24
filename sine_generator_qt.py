@@ -393,16 +393,17 @@ class MoogLadderFilter:
             # Stage 4: one-pole low-pass
             self.stage4_state += self.g * (self.stage3_state - self.stage4_state)
 
-            # Mode-dependent output selection (standard Moog approach)
+            # Mode-dependent output selection
             if self.filter_mode == "LP":
                 # Low-pass: output of 4th stage (24dB/octave)
                 output[i] = self.stage4_state
             elif self.filter_mode == "BP":
-                # Band-pass: output of 2nd stage (12dB/octave LP with resonance peak)
+                # Band-pass: output of 2nd stage
                 output[i] = self.stage2_state
             elif self.filter_mode == "HP":
-                # High-pass: input minus LP output
-                output[i] = input_signal[i] - self.stage4_state
+                # High-pass: use same input reference as filter stages (after feedback)
+                # HP = (input - feedback) - LP(input - feedback)
+                output[i] = input_sample - self.stage4_state
 
         # Simple output gain to compensate for 4-pole attenuation (same for all modes)
         # Moog filters naturally attenuate; a modest 2x boost is typical
@@ -2477,8 +2478,8 @@ class SineWaveGenerator(QMainWindow):
         elif knob_name == "Sustain":
             return f"{value}%"
         elif knob_name == "Cutoff":
-            # Apply logarithmic scaling for cutoff (20-5000 Hz)
-            freq = int(20 * (250 ** (value/100)))
+            # Apply logarithmic scaling for cutoff (20-20000 Hz)
+            freq = int(20 * (1000 ** (value/100)))
             return f"{freq}Hz"
         elif knob_name == "Resonance":
             return f"{value}%"
