@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QFileDialog, QMessageBox, QSlider, QGridLayout, QGroupBox,
                              QProgressBar, QToolButton)
 from PyQt5.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize
-from PyQt5.QtGui import QFont, QIcon, QPixmap
+from PyQt5.QtGui import QFont, QIcon, QPixmap, QPainter, QPen, QColor, QRadialGradient
 import pyqtgraph as pg
 
 
@@ -800,6 +800,51 @@ class SpectrumAnalyzerWindow(QMainWindow):
         self.plot_widget.setXRange(np.log10(20), np.log10(20000), padding=0)
 
 
+class LFOLEDIndicator(QWidget):
+    """LED-like indicator that displays LFO signal intensity"""
+    def __init__(self, parent=None, size=30):
+        super().__init__(parent)
+        self.size = size
+        self.value = 0.0  # -1.0 to 1.0
+        self.setFixedSize(size, size)
+
+    def set_value(self, value):
+        """Set the LFO value (-1.0 to 1.0)"""
+        self.value = max(-1.0, min(1.0, value))
+        self.update()  # Trigger repaint
+
+    def paintEvent(self, event):
+        """Custom paint to draw the LED indicator"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Map value from -1..1 to 0..1 (absolute intensity)
+        intensity = abs(self.value)
+
+        # Background circle (dark)
+        painter.setBrush(QColor(30, 30, 30))
+        painter.setPen(QPen(QColor(60, 60, 60), 1))
+        painter.drawEllipse(2, 2, self.size - 4, self.size - 4)
+
+        # LED glow (color based on positive/negative, intensity based on abs value)
+        if self.value >= 0:
+            # Positive: cyan/blue
+            color = QColor(0, int(180 * intensity), int(255 * intensity))
+        else:
+            # Negative: orange/red (just for visual variety, could be same color)
+            color = QColor(0, int(180 * intensity), int(255 * intensity))
+
+        # Create gradient for glow effect
+        gradient = QRadialGradient(self.size / 2, self.size / 2, self.size / 2)
+        gradient.setColorAt(0, color)
+        gradient.setColorAt(0.6, color.darker(120))
+        gradient.setColorAt(1, QColor(30, 30, 30))
+
+        painter.setBrush(gradient)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(2, 2, self.size - 4, self.size - 4)
+
+
 class SineWaveGenerator(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -872,6 +917,10 @@ class SineWaveGenerator(QMainWindow):
         self.lfo2_destination = "None"
         self.lfo2_depth = 0.0
         self.lfo2_mix = 1.0
+
+        # LFO signal values for LED display (updated in audio callback)
+        self.lfo1_signal_value = 0.0  # -1.0 to 1.0
+        self.lfo2_signal_value = 0.0  # -1.0 to 1.0
 
         # Noise Generator
         self.noise = NoiseGenerator(self.sample_rate)
@@ -1435,6 +1484,18 @@ class SineWaveGenerator(QMainWindow):
         self.level_meter_timer = QTimer()
         self.level_meter_timer.timeout.connect(self.update_level_meter)
         self.level_meter_timer.start(33)  # ~30 FPS
+
+        # Add timer to update LFO LED indicators (30 FPS)
+        self.lfo_led_timer = QTimer()
+        self.lfo_led_timer.timeout.connect(self.update_lfo_leds)
+        self.lfo_led_timer.start(33)  # ~30 FPS
+
+    def update_lfo_leds(self):
+        """Update LFO LED indicators with current signal values"""
+        if hasattr(self, 'lfo1_controls') and 'led' in self.lfo1_controls:
+            self.lfo1_controls['led'].set_value(self.lfo1_signal_value)
+        if hasattr(self, 'lfo2_controls') and 'led' in self.lfo2_controls:
+            self.lfo2_controls['led'].set_value(self.lfo2_signal_value)
 
     def update_level_meter(self):
         """Update level meter display"""
@@ -2657,6 +2718,10 @@ class SineWaveGenerator(QMainWindow):
         label.setFixedWidth(60)
         row.addWidget(label)
 
+        # LED Indicator
+        led_indicator = LFOLEDIndicator(size=30)
+        row.addWidget(led_indicator)
+
         # Shape dropdown
         shape_container = self.create_dropdown_container(
             "Shape", ["Sine", "Triangle", "Square", "Sawtooth", "Random"],
@@ -2721,6 +2786,7 @@ class SineWaveGenerator(QMainWindow):
 
         # Store references for preset loading and mode switching
         controls = {
+            'led': led_indicator,
             'shape': shape_container, 'destination': dest_container,
             'sync_mode': sync_container, 'division': div_container,
             'depth': depth_knob, 'mix': mix_knob,
@@ -3775,6 +3841,10 @@ class SineWaveGenerator(QMainWindow):
         # This avoids recalculating np.mean() multiple times per callback
         lfo1_mean = np.mean(lfo1_signal)
         lfo2_mean = np.mean(lfo2_signal)
+
+        # Store LFO values for LED display updates
+        self.lfo1_signal_value = lfo1_mean
+        self.lfo2_signal_value = lfo2_mean
 
         # Calculate modulations for both LFOs
         lfo1_mods = self.apply_lfo_modulation(

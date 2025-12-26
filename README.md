@@ -89,25 +89,34 @@ I strongly discourage using the code in this repository for the purpose of train
 - **Smooth Parameter Changes**: No clicks when sweeping cutoff, resonance, or switching modes
 - **Coefficient Caching**: Only recalculates when parameters change for optimal performance
 
-### LFO (Low-Frequency Oscillator)
-- **3 Waveforms**: Sine, Triangle, Square for different modulation shapes
-- **Dual Sync Modes**:
+### Dual LFO (Low-Frequency Oscillators)
+- **2 Independent LFOs**: Each LFO can target a different destination simultaneously
+- **5 Waveforms**: Sine, Triangle, Square, Sawtooth, Random for different modulation shapes
+- **LED Indicators**: Real-time visual feedback showing LFO signal intensity with pulsing glow effect
+- **Dropdown-Based UI**: Streamlined two-row interface with dropdown menus for easy control
+- **Dual Sync Modes per LFO**:
   - **Free Mode**: Manual Hz control (0.1-20 Hz)
   - **Sync Mode**: Tempo-synced divisions (1/16, 1/8, 1/4, 1/2, 1/1, 2/1, 4/1)
 - **MIDI Clock Integration**: Automatic BPM detection from MIDI clock messages
   - BPM knob disabled in Sync mode (controlled by MIDI tempo)
   - Real-time tempo tracking from DAW/sequencer
   - Smooth BPM averaging for stable sync
-- **10 Modulation Targets**: Comprehensive routing matrix
-  - **Pitch** (Osc 1, 2, 3): Vibrato and frequency modulation
-  - **Pulse Width** (Osc 1, 2, 3): Dynamic timbral movement
-  - **Volume** (Osc 1, 2, 3): Tremolo and amplitude modulation
+- **7 Simplified Destinations** (one per LFO):
+  - **None**: No modulation
+  - **All OSCs Pitch**: Vibrato on all oscillators
   - **Filter Cutoff**: Sweeping filter effects
-- **Dual Controls per Target**:
+  - **All OSCs Volume**: Tremolo on all oscillators
+  - **OSC1/2/3 Pulse Width**: PWM on individual oscillators
+- **Dual Controls per LFO**:
   - **Depth**: Amount of modulation (0-100%)
-  - **Mix**: Dry/wet blend (0-100%) for each assignment independently
+  - **Mix**: Dry/wet blend (0-100%)
+  - **Shape, Destination, Sync Mode, Division**: Dropdown selectors for quick parameter access
+- **Modulation Combining**: Both LFOs can target the same destination
+  - Pitch/Volume: Multiplicative combination for rich textures
+  - Pulse Width: Additive combination for complex timbral movement
+  - Filter: Averaged for smooth sweeps
 - **Real-time Modulation**: All parameters update instantly during playback
-- **JUNO-106 Style Interface**: Vertical sliders with tick marks for precise control
+- **Preset Migration**: Old single-LFO presets automatically convert to new format
 
 ### Noise Generator
 - **3 Noise Types**: White, Pink (1/f), and Brown (Brownian) noise
@@ -306,11 +315,30 @@ classDiagram
         +reset()
     }
 
+    class LFOGenerator {
+        +waveform: str
+        +rate_mode: str
+        +rate_hz: float
+        +sync_division: str
+        +bpm: float
+        +phase: float
+        +process(num_samples)
+    }
+
+    class LFOLEDIndicator {
+        +size: int
+        +value: float
+        +set_value(value)
+        +paintEvent(event)
+    }
+
     SineWaveGenerator "1" --> "1" EnvelopeGenerator : template
     SineWaveGenerator "1" --> "8" Voice : voice pool
     SineWaveGenerator "1" --> "1" NoiseGenerator : contains
     SineWaveGenerator "1" --> "1" MoogLadderFilter : contains
     SineWaveGenerator "1" --> "1" MIDIHandler : contains
+    SineWaveGenerator "1" --> "2" LFOGenerator : lfo1, lfo2
+    SineWaveGenerator "1" --> "2" LFOLEDIndicator : led indicators
     Voice "1" --> "1" EnvelopeGenerator : post-mixer envelope
     NoiseGenerator "1" --> "1" EnvelopeGenerator : noise envelope
 ```
@@ -335,6 +363,11 @@ graph LR
     MIX --> FILT[Moog Ladder Filter<br/>LP/BP/HP Modes<br/>Cutoff + Resonance]
     FILT --> OUT[Audio Output<br/>Stereo 44.1kHz]
 
+    LFO1[LFO 1<br/>5 Waveforms<br/>LED Indicator] -.->|modulation| VP
+    LFO1 -.->|modulation| FILT
+    LFO2[LFO 2<br/>5 Waveforms<br/>LED Indicator] -.->|modulation| VP
+    LFO2 -.->|modulation| FILT
+
     UI[UI Controls] -.->|voice mode| VM
     UI -.->|waveforms| VP
     UI -.->|detune/octave| VP
@@ -342,6 +375,8 @@ graph LR
     UI -.->|noise on/type/gain| NOISE
     UI -.->|gain| MIX
     UI -.->|cutoff/resonance| FILT
+    UI -.->|destination/depth/mix| LFO1
+    UI -.->|destination/depth/mix| LFO2
 
     PRESET[Preset System<br/>JSON Files] -.->|load| UI
     UI -.->|save| PRESET
@@ -504,6 +539,14 @@ This project started as a simple sine wave generator and evolved into a full sub
     - **Critical Bug Fix**: Corrected HP mode to use proper input reference (input_sample vs input_signal)
     - **Analog-Style Response**: LP from stage 4, BP from stage 2, HP by subtraction with correct phase
     - **Preset Compatibility**: Version 1.2 format saves filter mode, backward compatible with old presets
+23. **Dual LFO System with LED Indicators**: Complete LFO overhaul with improved UI/UX
+    - **Second LFO**: Added LFO2 with identical capabilities to LFO1 for complex modulation routing
+    - **Simplified Destinations**: Streamlined from 10-target matrix to 7 common destinations (one per LFO)
+    - **Dropdown UI**: Replaced slider matrix with ergonomic dropdown-based interface (2 visible rows)
+    - **LED Indicators**: Real-time visual feedback with pulsing circular LEDs showing LFO signal intensity
+    - **Modulation Combining**: Both LFOs can target same destination (multiplicative/additive/averaged)
+    - **Preset Migration**: Automatic conversion from v1.2 single-LFO format to v1.3 dual-LFO format
+    - **5 Waveforms per LFO**: Added Sawtooth and Random to existing Sine/Triangle/Square options
 
 ## Roadmap
 
