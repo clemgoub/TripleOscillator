@@ -52,6 +52,17 @@ LFO_PITCH_MOD_DEPTH = 0.05  # Pitch modulation depth (±5% frequency deviation)
 LFO_PW_MOD_DEPTH = 0.3      # Pulse width modulation depth (±30% pulse width deviation)
 LFO_FILTER_MOD_OCTAVES = 2.0  # Filter cutoff modulation range (±2 octaves)
 
+# LFO Destination Options
+LFO_DESTINATIONS = [
+    "None",
+    "All OSCs Pitch",
+    "Filter Cutoff",
+    "All OSCs Volume",
+    "OSC1 Pulse Width",
+    "OSC2 Pulse Width",
+    "OSC3 Pulse Width"
+]
+
 # Pulse Width Constraints
 PW_MIN = 0.01  # Minimum pulse width (prevents duty cycle issues)
 PW_MAX = 0.99  # Maximum pulse width (prevents duty cycle issues)
@@ -848,37 +859,24 @@ class SineWaveGenerator(QMainWindow):
 
         # DC blocking filter state will be initialized on first use (no need to pre-allocate)
 
-        # LFO
-        self.lfo = LFOGenerator(self.sample_rate)
+        # Dual LFOs
+        self.lfo1 = LFOGenerator(self.sample_rate)
+        self.lfo2 = LFOGenerator(self.sample_rate)
+
+        # LFO1 Parameters (simplified destination system)
+        self.lfo1_destination = "None"  # From LFO_DESTINATIONS
+        self.lfo1_depth = 0.0  # 0.0 to 1.0
+        self.lfo1_mix = 1.0    # 0.0 to 1.0 (dry/wet)
+
+        # LFO2 Parameters
+        self.lfo2_destination = "None"
+        self.lfo2_depth = 0.0
+        self.lfo2_mix = 1.0
 
         # Noise Generator
         self.noise = NoiseGenerator(self.sample_rate)
         self.noise_on = False
         self.noise_gain = 0.5  # 0-1
-
-        # Modulation matrix (depth 0-1 for each destination)
-        self.lfo_to_osc1_pitch = 0.0
-        self.lfo_to_osc2_pitch = 0.0
-        self.lfo_to_osc3_pitch = 0.0
-        self.lfo_to_osc1_pw = 0.0
-        self.lfo_to_osc2_pw = 0.0
-        self.lfo_to_osc3_pw = 0.0
-        self.lfo_to_filter_cutoff = 0.0
-        self.lfo_to_osc1_volume = 0.0
-        self.lfo_to_osc2_volume = 0.0
-        self.lfo_to_osc3_volume = 0.0
-
-        # Modulation matrix mix controls (dry/wet 0-1 for each destination)
-        self.lfo_to_osc1_pitch_mix = 1.0
-        self.lfo_to_osc2_pitch_mix = 1.0
-        self.lfo_to_osc3_pitch_mix = 1.0
-        self.lfo_to_osc1_pw_mix = 1.0
-        self.lfo_to_osc2_pw_mix = 1.0
-        self.lfo_to_osc3_pw_mix = 1.0
-        self.lfo_to_filter_cutoff_mix = 1.0
-        self.lfo_to_osc1_volume_mix = 1.0
-        self.lfo_to_osc2_volume_mix = 1.0
-        self.lfo_to_osc3_volume_mix = 1.0
 
         # MIDI
         self.midi_handler = MIDIHandler()
@@ -2271,203 +2269,59 @@ class SineWaveGenerator(QMainWindow):
         return section
 
     def create_lfo_section(self):
-        """Create LFO section with waveform, rate, and modulation matrix with depth + mix controls"""
+        """Create dual LFO section with dropdown-based UI"""
         section = QWidget()
         main_layout = QVBoxLayout(section)
-        main_layout.setSpacing(5)
+        main_layout.setSpacing(10)
         main_layout.setContentsMargins(5, 5, 5, 5)
 
-        # Store LFO slider references for preset loading
-        self.lfo_depth_sliders = {}  # keyed by attribute name (e.g., 'lfo_to_osc1_pitch')
-        self.lfo_mix_sliders = {}    # keyed by attribute name (e.g., 'lfo_to_osc1_pitch_mix')
+        # Store UI references for preset loading
+        self.lfo1_controls = {}
+        self.lfo2_controls = {}
 
-        # Top row: LFO controls
-        lfo_controls_layout = QHBoxLayout()
-        lfo_controls_layout.setSpacing(15)
+        # Title
+        title = QLabel("LFO MODULATION")
+        title.setAlignment(Qt.AlignCenter)
+        title.setFont(QFont("Arial", 12, QFont.Bold))
+        main_layout.addWidget(title)
 
-        # Waveform selector
-        waveform_container = QWidget()
-        waveform_layout = QVBoxLayout(waveform_container)
-        waveform_label = QLabel("Shape")
-        waveform_label.setAlignment(Qt.AlignCenter)
-        waveform_layout.addWidget(waveform_label)
-        self.lfo_waveform_combo = QComboBox()
-        self.lfo_waveform_combo.addItems(["Sine", "Triangle", "Square", "Sawtooth", "Random"])
-        self.lfo_waveform_combo.setFixedWidth(120)
-        self.lfo_waveform_combo.currentTextChanged.connect(lambda v: setattr(self.lfo, 'waveform', v))
-        waveform_layout.addWidget(self.lfo_waveform_combo)
-        lfo_controls_layout.addWidget(waveform_container)
+        # LFO 1 Row
+        lfo1_row = self.create_lfo_row(1, self.lfo1, 'lfo1_destination', 'lfo1_depth', 'lfo1_mix')
+        main_layout.addLayout(lfo1_row)
 
-        # Rate Mode selector (Sync)
-        mode_container = QWidget()
-        mode_layout = QVBoxLayout(mode_container)
-        mode_label = QLabel("Sync")
-        mode_label.setAlignment(Qt.AlignCenter)
-        mode_layout.addWidget(mode_label)
-        self.lfo_mode_combo = QComboBox()
-        self.lfo_mode_combo.addItems(["Free", "Sync"])
-        self.lfo_mode_combo.setFixedWidth(100)
-        self.lfo_mode_combo.currentTextChanged.connect(self.update_lfo_mode)
-        mode_layout.addWidget(self.lfo_mode_combo)
-        lfo_controls_layout.addWidget(mode_container)
+        # Separator line
+        separator = QLabel()
+        separator.setFixedHeight(2)
+        separator.setStyleSheet("background-color: #666666;")
+        main_layout.addWidget(separator)
 
-        # Rate knob (Free mode: 0.1-20 Hz) - labeled as Freq
-        self.lfo_rate_container = self.create_knob_with_label("Freq", 1, 200, 20,
-                                                                lambda v: self.update_lfo_rate(v / 10.0), size=60)
-        lfo_controls_layout.addWidget(self.lfo_rate_container)
-
-        # Sync division selector (only visible in Sync mode)
-        self.sync_div_container = QWidget()
-        sync_div_layout = QVBoxLayout(self.sync_div_container)
-        sync_div_label = QLabel("Division")
-        sync_div_label.setAlignment(Qt.AlignCenter)
-        sync_div_layout.addWidget(sync_div_label)
-        self.lfo_sync_combo = QComboBox()
-        self.lfo_sync_combo.addItems(["1/16", "1/8", "1/4", "1/2", "1/1", "2/1", "4/1"])
-        self.lfo_sync_combo.setCurrentText("1/4")
-        self.lfo_sync_combo.setFixedWidth(80)
-        self.lfo_sync_combo.currentTextChanged.connect(lambda v: setattr(self.lfo, 'sync_division', v))
-        sync_div_layout.addWidget(self.lfo_sync_combo)
-        self.sync_div_container.setVisible(False)  # Hidden by default
-        lfo_controls_layout.addWidget(self.sync_div_container)
-
-        # BPM knob (only visible in Sync mode)
-        self.bpm_container = self.create_knob_with_label("BPM", 40, 240, 120,
-                                                          lambda v: setattr(self.lfo, 'bpm', float(v)), size=60)
-        self.bpm_knob = self.bpm_container.findChild(QDial)  # Get reference to the knob
-        self.bpm_label_value = self.bpm_container.findChild(QLabel, "value_label")  # Get reference to value label
-        self.bpm_container.setVisible(False)  # Hidden by default
-        lfo_controls_layout.addWidget(self.bpm_container)
-
-        lfo_controls_layout.addStretch()
-        main_layout.addLayout(lfo_controls_layout)
-
-        # Bottom: Modulation Matrix with Depth + Mix controls
-        matrix_label = QLabel("Modulation Assignments (Depth / Mix)")
-        matrix_label.setAlignment(Qt.AlignCenter)
-        matrix_label.setFont(QFont("Arial", 10, QFont.Bold))
-        main_layout.addWidget(matrix_label)
-
-        # Create horizontal layout for grouped sliders
-        lfo_matrix_layout = QHBoxLayout()
-        lfo_matrix_layout.setSpacing(15)
-
-        # Helper function to create a dual-slider group (depth + mix for each target)
-        def create_dual_slider_group(group_title, slider_configs):
-            group_layout = QVBoxLayout()
-            group_layout.setSpacing(5)
-
-            # Group title
-            title = QLabel(group_title)
-            title.setAlignment(Qt.AlignCenter)
-            title.setFont(QFont("Arial", 9, QFont.Bold))
-            group_layout.addWidget(title)
-
-            # Sliders in horizontal row
-            sliders_row = QHBoxLayout()
-            sliders_row.setSpacing(12)  # Increased spacing to prevent overlap
-
-            for label_text, depth_attr, mix_attr in slider_configs:
-                # Container for one target (2 sliders + label)
-                target_container = QVBoxLayout()
-                target_container.setSpacing(2)
-
-                # Horizontal row for depth + mix sliders
-                dual_slider_row = QHBoxLayout()
-                dual_slider_row.setSpacing(5)  # Increased spacing between depth and mix
-
-                # Depth slider (ADSR style with tick marks)
-                depth_slider = QSlider(Qt.Vertical)
-                depth_slider.setMinimum(0)
-                depth_slider.setMaximum(100)
-                depth_slider.setValue(0)
-                depth_slider.setFixedHeight(100)  # Doubled from 50px
-                depth_slider.setTickPosition(QSlider.TicksRight)
-                depth_slider.valueChanged.connect(lambda v, attr=depth_attr: setattr(self, attr, v / 100.0))
-                dual_slider_row.addWidget(depth_slider)
-                # Store reference for preset loading
-                self.lfo_depth_sliders[depth_attr] = depth_slider
-
-                # Mix slider (ADSR style with tick marks)
-                mix_slider = QSlider(Qt.Vertical)
-                mix_slider.setMinimum(0)
-                mix_slider.setMaximum(100)
-                mix_slider.setValue(100)  # Default to 100% mix
-                mix_slider.setFixedHeight(100)  # Doubled from 50px
-                mix_slider.setTickPosition(QSlider.TicksRight)
-                mix_slider.valueChanged.connect(lambda v, attr=mix_attr: setattr(self, attr, v / 100.0))
-                dual_slider_row.addWidget(mix_slider)
-                # Store reference for preset loading
-                self.lfo_mix_sliders[mix_attr] = mix_slider
-
-                target_container.addLayout(dual_slider_row)
-
-                # Label below sliders
-                label = QLabel(label_text)
-                label.setAlignment(Qt.AlignCenter)
-                label.setFont(QFont("Arial", 8))
-                target_container.addWidget(label)
-
-                sliders_row.addLayout(target_container)
-
-            group_layout.addLayout(sliders_row)
-            return group_layout
-
-        # Group 1: PITCH (3 targets, each with depth + mix)
-        pitch_group = create_dual_slider_group("PITCH", [
-            ("O1", "lfo_to_osc1_pitch", "lfo_to_osc1_pitch_mix"),
-            ("O2", "lfo_to_osc2_pitch", "lfo_to_osc2_pitch_mix"),
-            ("O3", "lfo_to_osc3_pitch", "lfo_to_osc3_pitch_mix")
-        ])
-        lfo_matrix_layout.addLayout(pitch_group)
-
-        # Group 2: PULSE WIDTH (3 targets)
-        pw_group = create_dual_slider_group("PULSE WIDTH", [
-            ("O1", "lfo_to_osc1_pw", "lfo_to_osc1_pw_mix"),
-            ("O2", "lfo_to_osc2_pw", "lfo_to_osc2_pw_mix"),
-            ("O3", "lfo_to_osc3_pw", "lfo_to_osc3_pw_mix")
-        ])
-        lfo_matrix_layout.addLayout(pw_group)
-
-        # Group 3: VOLUME (3 targets)
-        vol_group = create_dual_slider_group("VOLUME", [
-            ("O1", "lfo_to_osc1_volume", "lfo_to_osc1_volume_mix"),
-            ("O2", "lfo_to_osc2_volume", "lfo_to_osc2_volume_mix"),
-            ("O3", "lfo_to_osc3_volume", "lfo_to_osc3_volume_mix")
-        ])
-        lfo_matrix_layout.addLayout(vol_group)
-
-        # Group 4: FILTER (1 target)
-        filter_group = create_dual_slider_group("FILTER", [
-            ("Cutoff", "lfo_to_filter_cutoff", "lfo_to_filter_cutoff_mix")
-        ])
-        lfo_matrix_layout.addLayout(filter_group)
-
-        lfo_matrix_layout.addStretch()  # Push everything left
-        main_layout.addLayout(lfo_matrix_layout)
+        # LFO 2 Row
+        lfo2_row = self.create_lfo_row(2, self.lfo2, 'lfo2_destination', 'lfo2_depth', 'lfo2_mix')
+        main_layout.addLayout(lfo2_row)
 
         return section
 
-    def update_lfo_mode(self, mode):
-        """Update LFO rate mode and show/hide relevant controls"""
-        self.lfo.rate_mode = mode
+    def update_lfo_mode(self, lfo_num, mode):
+        """Update LFO rate mode and show/hide controls"""
+        lfo_obj = self.lfo1 if lfo_num == 1 else self.lfo2
+        controls = self.lfo1_controls if lfo_num == 1 else self.lfo2_controls
+
+        lfo_obj.rate_mode = mode
+
+        # Show/hide controls based on mode
         if mode == "Free":
-            self.lfo_rate_container.setVisible(True)
-            self.sync_div_container.setVisible(False)
-            self.bpm_container.setVisible(False)
-            if self.bpm_knob:
-                self.bpm_knob.setEnabled(True)
+            controls['freq'].setVisible(True)
+            controls['division'].setVisible(False)
+            controls['bpm'].setVisible(False)
         else:  # Sync
-            self.lfo_rate_container.setVisible(False)
-            self.sync_div_container.setVisible(True)
-            self.bpm_container.setVisible(True)
-            # Disable BPM knob in Sync mode - BPM comes from MIDI clock
-            if self.bpm_knob:
-                self.bpm_knob.setEnabled(False)
+            controls['freq'].setVisible(False)
+            controls['division'].setVisible(True)
+            controls['bpm'].setVisible(True)
 
     def update_lfo_rate(self, rate_hz):
-        """Update LFO rate in Hz"""
-        self.lfo.rate_hz = rate_hz
+        """Update LFO rate in Hz (legacy method - no longer used)"""
+        # This method is no longer used with the new dual LFO UI
+        pass
 
     def create_knob_with_label(self, name, min_val, max_val, initial_val, callback, size=70):
         """Helper to create a knob with label and value display"""
@@ -2746,6 +2600,141 @@ class SineWaveGenerator(QMainWindow):
         self.filter_bp_button.setChecked(mode == "BP")
         self.filter_hp_button.setChecked(mode == "HP")
 
+    def create_dropdown_container(self, label_text, items, initial_value, callback, width):
+        """Create a labeled dropdown combo box
+
+        Args:
+            label_text: Text above dropdown
+            items: List of strings for dropdown
+            initial_value: Initial selection
+            callback: Function called on selection change
+            width: Fixed width in pixels
+
+        Returns:
+            QWidget container with label and combo box
+        """
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setSpacing(2)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        label = QLabel(label_text)
+        label.setAlignment(Qt.AlignCenter)
+        label.setFont(QFont("Arial", 9))
+        layout.addWidget(label)
+
+        combo = QComboBox()
+        combo.addItems(items)
+        combo.setCurrentText(initial_value)
+        combo.setFixedWidth(width)
+        combo.currentTextChanged.connect(callback)
+        layout.addWidget(combo)
+
+        # Store combo reference in container for later access
+        container.combo = combo
+
+        return container
+
+    def create_lfo_row(self, lfo_num, lfo_obj, dest_attr, depth_attr, mix_attr):
+        """Create one LFO control row with dropdowns and knobs
+
+        Args:
+            lfo_num: 1 or 2
+            lfo_obj: self.lfo1 or self.lfo2
+            dest_attr: 'lfo1_destination' or 'lfo2_destination'
+            depth_attr: 'lfo1_depth' or 'lfo2_depth'
+            mix_attr: 'lfo1_mix' or 'lfo2_mix'
+
+        Returns:
+            QHBoxLayout with all controls for one LFO
+        """
+        row = QHBoxLayout()
+        row.setSpacing(15)
+
+        # Label
+        label = QLabel(f"LFO {lfo_num}:")
+        label.setFont(QFont("Arial", 10, QFont.Bold))
+        label.setFixedWidth(60)
+        row.addWidget(label)
+
+        # Shape dropdown
+        shape_container = self.create_dropdown_container(
+            "Shape", ["Sine", "Triangle", "Square", "Sawtooth", "Random"],
+            lfo_obj.waveform, lambda v: setattr(lfo_obj, 'waveform', v), 120
+        )
+        row.addWidget(shape_container)
+
+        # Destination dropdown
+        dest_container = self.create_dropdown_container(
+            "Destination", LFO_DESTINATIONS,
+            getattr(self, dest_attr), lambda v: setattr(self, dest_attr, v), 150
+        )
+        row.addWidget(dest_container)
+
+        # Sync Mode dropdown
+        sync_container = self.create_dropdown_container(
+            "Sync Mode", ["Free", "Sync"],
+            lfo_obj.rate_mode, lambda v: self.update_lfo_mode(lfo_num, v), 100
+        )
+        row.addWidget(sync_container)
+
+        # Division dropdown (visible in Sync mode)
+        div_container = self.create_dropdown_container(
+            "Division", ["1/16", "1/8", "1/4", "1/2", "1/1", "2/1", "4/1"],
+            lfo_obj.sync_division, lambda v: setattr(lfo_obj, 'sync_division', v), 80
+        )
+        div_container.setVisible(lfo_obj.rate_mode == "Sync")
+        row.addWidget(div_container)
+
+        # Depth knob
+        depth_knob = self.create_knob_with_label(
+            "Depth", 0, 100, int(getattr(self, depth_attr) * 100),
+            lambda v: setattr(self, depth_attr, v / 100.0), 60
+        )
+        row.addWidget(depth_knob)
+
+        # Mix knob
+        mix_knob = self.create_knob_with_label(
+            "Mix", 0, 100, int(getattr(self, mix_attr) * 100),
+            lambda v: setattr(self, mix_attr, v / 100.0), 60
+        )
+        row.addWidget(mix_knob)
+
+        # Frequency knob (visible in Free mode)
+        freq_knob = self.create_knob_with_label(
+            "Freq", 1, 200, int(lfo_obj.rate_hz * 10),
+            lambda v: setattr(lfo_obj, 'rate_hz', v / 10.0), 60
+        )
+        freq_knob.setVisible(lfo_obj.rate_mode == "Free")
+        row.addWidget(freq_knob)
+
+        # BPM knob (visible in Sync mode, disabled)
+        bpm_knob = self.create_knob_with_label(
+            "BPM", 40, 240, int(lfo_obj.bpm),
+            lambda v: setattr(lfo_obj, 'bpm', float(v)), 60
+        )
+        bpm_knob.setVisible(lfo_obj.rate_mode == "Sync")
+        bpm_dial = bpm_knob.findChild(QDial)
+        if bpm_dial:
+            bpm_dial.setEnabled(False)
+        row.addWidget(bpm_knob)
+
+        # Store references for preset loading and mode switching
+        controls = {
+            'shape': shape_container, 'destination': dest_container,
+            'sync_mode': sync_container, 'division': div_container,
+            'depth': depth_knob, 'mix': mix_knob,
+            'freq': freq_knob, 'bpm': bpm_knob
+        }
+
+        if lfo_num == 1:
+            self.lfo1_controls = controls
+        else:
+            self.lfo2_controls = controls
+
+        row.addStretch()
+        return row
+
     def save_preset(self):
         """Save current settings to a preset file"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -2774,7 +2763,7 @@ class SineWaveGenerator(QMainWindow):
 
         # Create preset data structure
         preset = {
-            "version": "1.2",  # Incremented: now saves filter mode
+            "version": "1.3",  # Incremented: now saves dual LFO structure
             "oscillators": {
                 "osc1": {
                     "enabled": self.osc1_on,  # Save actual runtime on/off state
@@ -2817,36 +2806,25 @@ class SineWaveGenerator(QMainWindow):
                 "resonance": self.filter.resonance,
                 "mode": self.filter.filter_mode
             },
-            "lfo": {
-                "waveform": self.lfo.waveform,
-                "rate_mode": self.lfo.rate_mode,
-                "rate_hz": self.lfo.rate_hz,
-                "sync_division": self.lfo.sync_division,
-                "bpm": self.lfo.bpm,
-                "depth": {
-                    "osc1_pitch": self.lfo_to_osc1_pitch,
-                    "osc2_pitch": self.lfo_to_osc2_pitch,
-                    "osc3_pitch": self.lfo_to_osc3_pitch,
-                    "osc1_pw": self.lfo_to_osc1_pw,
-                    "osc2_pw": self.lfo_to_osc2_pw,
-                    "osc3_pw": self.lfo_to_osc3_pw,
-                    "filter_cutoff": self.lfo_to_filter_cutoff,
-                    "osc1_volume": self.lfo_to_osc1_volume,
-                    "osc2_volume": self.lfo_to_osc2_volume,
-                    "osc3_volume": self.lfo_to_osc3_volume
-                },
-                "mix": {
-                    "osc1_pitch": self.lfo_to_osc1_pitch_mix,
-                    "osc2_pitch": self.lfo_to_osc2_pitch_mix,
-                    "osc3_pitch": self.lfo_to_osc3_pitch_mix,
-                    "osc1_pw": self.lfo_to_osc1_pw_mix,
-                    "osc2_pw": self.lfo_to_osc2_pw_mix,
-                    "osc3_pw": self.lfo_to_osc3_pw_mix,
-                    "filter_cutoff": self.lfo_to_filter_cutoff_mix,
-                    "osc1_volume": self.lfo_to_osc1_volume_mix,
-                    "osc2_volume": self.lfo_to_osc2_volume_mix,
-                    "osc3_volume": self.lfo_to_osc3_volume_mix
-                }
+            "lfo1": {
+                "waveform": self.lfo1.waveform,
+                "rate_mode": self.lfo1.rate_mode,
+                "rate_hz": self.lfo1.rate_hz,
+                "sync_division": self.lfo1.sync_division,
+                "bpm": self.lfo1.bpm,
+                "destination": self.lfo1_destination,
+                "depth": self.lfo1_depth,
+                "mix": self.lfo1_mix
+            },
+            "lfo2": {
+                "waveform": self.lfo2.waveform,
+                "rate_mode": self.lfo2.rate_mode,
+                "rate_hz": self.lfo2.rate_hz,
+                "sync_division": self.lfo2.sync_division,
+                "bpm": self.lfo2.bpm,
+                "destination": self.lfo2_destination,
+                "depth": self.lfo2_depth,
+                "mix": self.lfo2_mix
             },
             "noise": {
                 "enabled": self.noise_on,
@@ -2959,39 +2937,15 @@ class SineWaveGenerator(QMainWindow):
             playback_mode = preset.get("playback_mode", "chromatic")
             self.set_playback_mode(playback_mode)
 
-            # LFO settings
-            lfo = preset.get("lfo", {})
-            self.lfo.waveform = lfo.get("waveform", "Sine")
-            self.lfo.rate_mode = lfo.get("rate_mode", "Free")
-            self.lfo.rate_hz = lfo.get("rate_hz", 2.0)
-            self.lfo.sync_division = lfo.get("sync_division", "1/4")
-            self.lfo.bpm = lfo.get("bpm", 120.0)
-
-            # LFO depth parameters
-            lfo_depth = lfo.get("depth", {})
-            self.lfo_to_osc1_pitch = lfo_depth.get("osc1_pitch", 0.0)
-            self.lfo_to_osc2_pitch = lfo_depth.get("osc2_pitch", 0.0)
-            self.lfo_to_osc3_pitch = lfo_depth.get("osc3_pitch", 0.0)
-            self.lfo_to_osc1_pw = lfo_depth.get("osc1_pw", 0.0)
-            self.lfo_to_osc2_pw = lfo_depth.get("osc2_pw", 0.0)
-            self.lfo_to_osc3_pw = lfo_depth.get("osc3_pw", 0.0)
-            self.lfo_to_filter_cutoff = lfo_depth.get("filter_cutoff", 0.0)
-            self.lfo_to_osc1_volume = lfo_depth.get("osc1_volume", 0.0)
-            self.lfo_to_osc2_volume = lfo_depth.get("osc2_volume", 0.0)
-            self.lfo_to_osc3_volume = lfo_depth.get("osc3_volume", 0.0)
-
-            # LFO mix parameters
-            lfo_mix = lfo.get("mix", {})
-            self.lfo_to_osc1_pitch_mix = lfo_mix.get("osc1_pitch", 1.0)
-            self.lfo_to_osc2_pitch_mix = lfo_mix.get("osc2_pitch", 1.0)
-            self.lfo_to_osc3_pitch_mix = lfo_mix.get("osc3_pitch", 1.0)
-            self.lfo_to_osc1_pw_mix = lfo_mix.get("osc1_pw", 1.0)
-            self.lfo_to_osc2_pw_mix = lfo_mix.get("osc2_pw", 1.0)
-            self.lfo_to_osc3_pw_mix = lfo_mix.get("osc3_pw", 1.0)
-            self.lfo_to_filter_cutoff_mix = lfo_mix.get("filter_cutoff", 1.0)
-            self.lfo_to_osc1_volume_mix = lfo_mix.get("osc1_volume", 1.0)
-            self.lfo_to_osc2_volume_mix = lfo_mix.get("osc2_volume", 1.0)
-            self.lfo_to_osc3_volume_mix = lfo_mix.get("osc3_volume", 1.0)
+            # LFO settings - detect old vs new format
+            if "lfo1" in preset:
+                # New dual LFO format
+                self._load_lfo_settings(self.lfo1, preset["lfo1"], 'lfo1_destination', 'lfo1_depth', 'lfo1_mix')
+                self._load_lfo_settings(self.lfo2, preset["lfo2"], 'lfo2_destination', 'lfo2_depth', 'lfo2_mix')
+            else:
+                # Old single LFO format - migrate to LFO1, reset LFO2
+                self._migrate_legacy_lfo(preset.get("lfo", {}))
+                self._reset_lfo_to_defaults(self.lfo2, 'lfo2_destination', 'lfo2_depth', 'lfo2_mix')
 
             # Set voice mode
             if voice_mode == "Mono":
@@ -3144,39 +3098,15 @@ class SineWaveGenerator(QMainWindow):
             playback_mode = preset.get("playback_mode", "chromatic")
             self.set_playback_mode(playback_mode)
 
-            # LFO settings
-            lfo = preset.get("lfo", {})
-            self.lfo.waveform = lfo.get("waveform", "Sine")
-            self.lfo.rate_mode = lfo.get("rate_mode", "Free")
-            self.lfo.rate_hz = lfo.get("rate_hz", 2.0)
-            self.lfo.sync_division = lfo.get("sync_division", "1/4")
-            self.lfo.bpm = lfo.get("bpm", 120.0)
-
-            # LFO depth parameters
-            lfo_depth = lfo.get("depth", {})
-            self.lfo_to_osc1_pitch = lfo_depth.get("osc1_pitch", 0.0)
-            self.lfo_to_osc2_pitch = lfo_depth.get("osc2_pitch", 0.0)
-            self.lfo_to_osc3_pitch = lfo_depth.get("osc3_pitch", 0.0)
-            self.lfo_to_osc1_pw = lfo_depth.get("osc1_pw", 0.0)
-            self.lfo_to_osc2_pw = lfo_depth.get("osc2_pw", 0.0)
-            self.lfo_to_osc3_pw = lfo_depth.get("osc3_pw", 0.0)
-            self.lfo_to_filter_cutoff = lfo_depth.get("filter_cutoff", 0.0)
-            self.lfo_to_osc1_volume = lfo_depth.get("osc1_volume", 0.0)
-            self.lfo_to_osc2_volume = lfo_depth.get("osc2_volume", 0.0)
-            self.lfo_to_osc3_volume = lfo_depth.get("osc3_volume", 0.0)
-
-            # LFO mix parameters
-            lfo_mix = lfo.get("mix", {})
-            self.lfo_to_osc1_pitch_mix = lfo_mix.get("osc1_pitch", 1.0)
-            self.lfo_to_osc2_pitch_mix = lfo_mix.get("osc2_pitch", 1.0)
-            self.lfo_to_osc3_pitch_mix = lfo_mix.get("osc3_pitch", 1.0)
-            self.lfo_to_osc1_pw_mix = lfo_mix.get("osc1_pw", 1.0)
-            self.lfo_to_osc2_pw_mix = lfo_mix.get("osc2_pw", 1.0)
-            self.lfo_to_osc3_pw_mix = lfo_mix.get("osc3_pw", 1.0)
-            self.lfo_to_filter_cutoff_mix = lfo_mix.get("filter_cutoff", 1.0)
-            self.lfo_to_osc1_volume_mix = lfo_mix.get("osc1_volume", 1.0)
-            self.lfo_to_osc2_volume_mix = lfo_mix.get("osc2_volume", 1.0)
-            self.lfo_to_osc3_volume_mix = lfo_mix.get("osc3_volume", 1.0)
+            # LFO settings - detect old vs new format
+            if "lfo1" in preset:
+                # New dual LFO format
+                self._load_lfo_settings(self.lfo1, preset["lfo1"], 'lfo1_destination', 'lfo1_depth', 'lfo1_mix')
+                self._load_lfo_settings(self.lfo2, preset["lfo2"], 'lfo2_destination', 'lfo2_depth', 'lfo2_mix')
+            else:
+                # Old single LFO format - migrate to LFO1, reset LFO2
+                self._migrate_legacy_lfo(preset.get("lfo", {}))
+                self._reset_lfo_to_defaults(self.lfo2, 'lfo2_destination', 'lfo2_depth', 'lfo2_mix')
 
             # Set voice mode
             if voice_mode == "Mono":
@@ -3196,6 +3126,104 @@ class SineWaveGenerator(QMainWindow):
             print(f"Invalid preset file {file_path}: {str(e)}")
         except Exception as e:
             print(f"Failed to load preset {file_path}: {str(e)}")
+
+    def _load_lfo_settings(self, lfo_obj, lfo_data, dest_attr, depth_attr, mix_attr):
+        """Load LFO settings from preset data"""
+        lfo_obj.waveform = lfo_data.get("waveform", "Sine")
+        lfo_obj.rate_mode = lfo_data.get("rate_mode", "Free")
+        lfo_obj.rate_hz = lfo_data.get("rate_hz", 2.0)
+        lfo_obj.sync_division = lfo_data.get("sync_division", "1/4")
+        lfo_obj.bpm = lfo_data.get("bpm", 120.0)
+        setattr(self, dest_attr, lfo_data.get("destination", "None"))
+        setattr(self, depth_attr, lfo_data.get("depth", 0.0))
+        setattr(self, mix_attr, lfo_data.get("mix", 1.0))
+
+    def _reset_lfo_to_defaults(self, lfo_obj, dest_attr, depth_attr, mix_attr):
+        """Reset LFO to default values"""
+        lfo_obj.waveform = "Sine"
+        lfo_obj.rate_mode = "Free"
+        lfo_obj.rate_hz = 2.0
+        lfo_obj.sync_division = "1/4"
+        lfo_obj.bpm = 120.0
+        setattr(self, dest_attr, "None")
+        setattr(self, depth_attr, 0.0)
+        setattr(self, mix_attr, 1.0)
+
+    def _migrate_legacy_lfo(self, lfo_data):
+        """Migrate old single-LFO preset format to LFO1"""
+        self.lfo1.waveform = lfo_data.get("waveform", "Sine")
+        self.lfo1.rate_mode = lfo_data.get("rate_mode", "Free")
+        self.lfo1.rate_hz = lfo_data.get("rate_hz", 2.0)
+        self.lfo1.sync_division = lfo_data.get("sync_division", "1/4")
+        self.lfo1.bpm = lfo_data.get("bpm", 120.0)
+
+        # Map old modulation targets to new simplified destinations
+        depth = lfo_data.get("depth", {})
+        mix = lfo_data.get("mix", {})
+
+        destination_map = {
+            "osc1_pitch": "All OSCs Pitch", "osc2_pitch": "All OSCs Pitch", "osc3_pitch": "All OSCs Pitch",
+            "osc1_pw": "OSC1 Pulse Width", "osc2_pw": "OSC2 Pulse Width", "osc3_pw": "OSC3 Pulse Width",
+            "filter_cutoff": "Filter Cutoff",
+            "osc1_volume": "All OSCs Volume", "osc2_volume": "All OSCs Volume", "osc3_volume": "All OSCs Volume"
+        }
+
+        # Search for first active modulation in priority order
+        search_order = ["osc1_pitch", "osc2_pitch", "osc3_pitch", "filter_cutoff",
+                        "osc1_pw", "osc2_pw", "osc3_pw", "osc1_volume", "osc2_volume", "osc3_volume"]
+
+        # Default to "None"
+        self.lfo1_destination = "None"
+        self.lfo1_depth = 0.0
+        self.lfo1_mix = 1.0
+
+        # Find first active modulation
+        for key in search_order:
+            if depth.get(key, 0.0) > 0.0:
+                self.lfo1_destination = destination_map[key]
+                self.lfo1_depth = depth[key]
+                self.lfo1_mix = mix.get(key, 1.0)
+                break
+
+    def _update_lfo_ui(self, controls, lfo_obj, destination, depth, mix):
+        """Update LFO UI controls from values"""
+        # Update dropdowns (with signal blocking to prevent callbacks)
+        for key in ['shape', 'destination', 'sync_mode', 'division']:
+            if key in controls:
+                combo = controls[key].combo
+                combo.blockSignals(True)
+                if key == 'shape':
+                    combo.setCurrentText(lfo_obj.waveform)
+                elif key == 'destination':
+                    combo.setCurrentText(destination)
+                elif key == 'sync_mode':
+                    combo.setCurrentText(lfo_obj.rate_mode)
+                elif key == 'division':
+                    combo.setCurrentText(lfo_obj.sync_division)
+                combo.blockSignals(False)
+
+        # Update knobs
+        self._update_knob_value(controls['depth'], depth * 100, f"{int(depth * 100)}%")
+        self._update_knob_value(controls['mix'], mix * 100, f"{int(mix * 100)}%")
+        self._update_knob_value(controls['freq'], lfo_obj.rate_hz * 10, f"{lfo_obj.rate_hz:.1f} Hz")
+        self._update_knob_value(controls['bpm'], lfo_obj.bpm, f"{int(lfo_obj.bpm)}")
+
+        # Show/hide controls based on mode
+        is_sync = (lfo_obj.rate_mode == "Sync")
+        controls['freq'].setVisible(not is_sync)
+        controls['division'].setVisible(is_sync)
+        controls['bpm'].setVisible(is_sync)
+
+    def _update_knob_value(self, knob_container, value, display_text):
+        """Update knob value and label"""
+        knob = knob_container.findChild(QDial)
+        label = knob_container.findChild(QLabel, "value_label")
+        if knob:
+            knob.blockSignals(True)
+            knob.setValue(int(value))
+            knob.blockSignals(False)
+        if label:
+            label.setText(display_text)
 
     def update_ui_from_preset(self):
         """Update all UI elements to reflect current preset values"""
@@ -3323,35 +3351,13 @@ class SineWaveGenerator(QMainWindow):
         self.filter_bp_button.setChecked(self.filter.filter_mode == "BP")
         self.filter_hp_button.setChecked(self.filter.filter_mode == "HP")
 
-        # Update LFO waveform and mode
-        self.lfo_waveform_combo.blockSignals(True)
-        self.lfo_mode_combo.blockSignals(True)
-        self.lfo_waveform_combo.setCurrentText(self.lfo.waveform)
-        self.lfo_mode_combo.setCurrentText(self.lfo.rate_mode)
-        self.lfo_waveform_combo.blockSignals(False)
-        self.lfo_mode_combo.blockSignals(False)
-
-        # Update LFO sync division if needed
-        if hasattr(self, 'lfo_sync_combo'):
-            self.lfo_sync_combo.blockSignals(True)
-            self.lfo_sync_combo.setCurrentText(self.lfo.sync_division)
-            self.lfo_sync_combo.blockSignals(False)
-
-        # Update LFO depth sliders (if they exist)
-        if hasattr(self, 'lfo_depth_sliders'):
-            for attr_name, slider in self.lfo_depth_sliders.items():
-                slider.blockSignals(True)
-                value = getattr(self, attr_name, 0.0)
-                slider.setValue(round(value * 100))  # 0.0-1.0 → 0-100
-                slider.blockSignals(False)
-
-        # Update LFO mix sliders (if they exist)
-        if hasattr(self, 'lfo_mix_sliders'):
-            for attr_name, slider in self.lfo_mix_sliders.items():
-                slider.blockSignals(True)
-                value = getattr(self, attr_name, 1.0)
-                slider.setValue(round(value * 100))  # 0.0-1.0 → 0-100
-                slider.blockSignals(False)
+        # Update dual LFO UI
+        if hasattr(self, 'lfo1_controls'):
+            self._update_lfo_ui(self.lfo1_controls, self.lfo1,
+                               self.lfo1_destination, self.lfo1_depth, self.lfo1_mix)
+        if hasattr(self, 'lfo2_controls'):
+            self._update_lfo_ui(self.lfo2_controls, self.lfo2,
+                               self.lfo2_destination, self.lfo2_depth, self.lfo2_mix)
 
         # Update oscillator enable/disable buttons
         # Sync osc_on variables with osc_enabled from preset
@@ -3620,7 +3626,65 @@ class SineWaveGenerator(QMainWindow):
         else:
             return np.sin(phases)
 
-    def process_oscillator(self, osc_num, voice, base_freq_detuned, lfo_signal, lfo_mean, frames):
+    def apply_lfo_modulation(self, lfo_num, lfo_signal, lfo_mean, destination, depth, mix):
+        """Apply LFO modulation to specified destination(s)
+
+        Args:
+            lfo_num: 1 or 2 (for tracking which LFO)
+            lfo_signal: Full LFO waveform array (-1 to 1)
+            lfo_mean: Cached mean of lfo_signal
+            destination: String from LFO_DESTINATIONS
+            depth: Modulation depth (0-1)
+            mix: Dry/wet mix (0-1)
+
+        Returns:
+            dict: {
+                'pitch_mod': {osc_num: multiplier},
+                'pw_mod': {osc_num: pw_offset},
+                'vol_mod': {osc_num: gain_array},
+                'filter_mod': cutoff_hz or None
+            }
+        """
+        result = {
+            'pitch_mod': {},  # {osc_num: multiplier}
+            'pw_mod': {},     # {osc_num: pw_offset}
+            'vol_mod': {},    # {osc_num: gain_array}
+            'filter_mod': None  # cutoff_hz or None
+        }
+
+        if destination == "None" or depth == 0.0:
+            return result
+
+        if destination == "All OSCs Pitch":
+            # Apply vibrato to all 3 oscillators
+            pitch_scalar = 1.0 + (lfo_mean * LFO_PITCH_MOD_DEPTH * depth * mix)
+            result['pitch_mod'] = {1: pitch_scalar, 2: pitch_scalar, 3: pitch_scalar}
+
+        elif destination == "Filter Cutoff":
+            # Apply filter sweep
+            cutoff_mod = 2.0 ** (lfo_mean * LFO_FILTER_MOD_OCTAVES * depth)
+            wet_cutoff = self.filter_cutoff_base * cutoff_mod
+            dry_cutoff = self.filter_cutoff_base
+            result['filter_mod'] = np.clip(
+                dry_cutoff * (1.0 - mix) + wet_cutoff * mix,
+                FILTER_CUTOFF_MIN, FILTER_CUTOFF_MAX
+            )
+
+        elif destination == "All OSCs Volume":
+            # Apply tremolo to all 3 oscillators (uses full signal array)
+            vol_mod = 1.0 + (lfo_signal * depth * mix)
+            vol_array = np.clip(vol_mod, VOL_MOD_MIN, VOL_MOD_MAX)
+            result['vol_mod'] = {1: vol_array, 2: vol_array, 3: vol_array}
+
+        elif destination in ["OSC1 Pulse Width", "OSC2 Pulse Width", "OSC3 Pulse Width"]:
+            # Apply PWM to specific oscillator
+            osc_num = int(destination[3])  # Extract "1", "2", or "3"
+            pw_offset = lfo_mean * LFO_PW_MOD_DEPTH * depth * mix
+            result['pw_mod'] = {osc_num: pw_offset}
+
+        return result
+
+    def process_oscillator(self, osc_num, voice, base_freq_detuned, lfo1_mods, lfo2_mods, frames):
         """Process a single oscillator and return its output signal
 
         This helper eliminates code duplication across the three oscillators by using
@@ -3630,8 +3694,8 @@ class SineWaveGenerator(QMainWindow):
             osc_num: Oscillator number (1, 2, or 3)
             voice: Voice object
             base_freq_detuned: Base frequency with unison detune applied
-            lfo_signal: LFO signal array (-1 to 1)
-            lfo_mean: Mean of LFO signal (cached for performance)
+            lfo1_mods: Modulation dict from LFO1 (apply_lfo_modulation result)
+            lfo2_mods: Modulation dict from LFO2 (apply_lfo_modulation result)
             frames: Number of frames to generate
 
         Returns:
@@ -3650,14 +3714,6 @@ class SineWaveGenerator(QMainWindow):
         pulse_width = getattr(self, f'pulse_width{osc_num}')
         gain = getattr(self, f'gain{osc_num}')
 
-        # LFO modulation parameters
-        lfo_pitch_depth = getattr(self, f'lfo_to_osc{osc_num}_pitch')
-        lfo_pitch_mix = getattr(self, f'lfo_to_osc{osc_num}_pitch_mix')
-        lfo_pw_depth = getattr(self, f'lfo_to_osc{osc_num}_pw')
-        lfo_pw_mix = getattr(self, f'lfo_to_osc{osc_num}_pw_mix')
-        lfo_vol_depth = getattr(self, f'lfo_to_osc{osc_num}_volume')
-        lfo_vol_mix = getattr(self, f'lfo_to_osc{osc_num}_volume_mix')
-
         # Get voice phase
         phase_attr = f'phase{osc_num}'
         phase = getattr(voice, phase_attr)
@@ -3669,21 +3725,32 @@ class SineWaveGenerator(QMainWindow):
             # Apply oscillator-specific detune and octave
             freq = self.apply_octave(self.apply_detune(base_freq_detuned, detune), octave)
 
-        # Apply pitch modulation (vibrato) - use cached mean for phase increment calculation
-        freq_mod_scalar = 1.0 + (lfo_mean * LFO_PITCH_MOD_DEPTH * lfo_pitch_depth * lfo_pitch_mix)
+        # Combine pitch modulations from both LFOs (multiplicative)
+        freq_mod_scalar = 1.0
+        if osc_num in lfo1_mods['pitch_mod']:
+            freq_mod_scalar *= lfo1_mods['pitch_mod'][osc_num]
+        if osc_num in lfo2_mods['pitch_mod']:
+            freq_mod_scalar *= lfo2_mods['pitch_mod'][osc_num]
         modulated_freq = freq * freq_mod_scalar
         phase_increment = 2 * np.pi * modulated_freq / self.sample_rate
 
-        # Apply pulse width modulation - use cached mean for pw calculation
-        pw_mod = lfo_mean * LFO_PW_MOD_DEPTH * lfo_pw_depth * lfo_pw_mix
+        # Combine PW modulations from both LFOs (additive)
+        pw_mod = 0.0
+        if osc_num in lfo1_mods['pw_mod']:
+            pw_mod += lfo1_mods['pw_mod'][osc_num]
+        if osc_num in lfo2_mods['pw_mod']:
+            pw_mod += lfo2_mods['pw_mod'][osc_num]
         modulated_pw = np.clip(pulse_width + pw_mod, PW_MIN, PW_MAX)
 
         # Generate waveform using voice's phase
         wave = self.generate_waveform(waveform, phase, phase_increment, frames, modulated_pw)
 
-        # Apply volume modulation (tremolo) - apply as array
-        vol_mod = 1.0 + (lfo_signal * lfo_vol_depth * lfo_vol_mix)
-        modulated_gain = gain * np.clip(vol_mod, VOL_MOD_MIN, VOL_MOD_MAX)
+        # Combine volume modulations from both LFOs (multiplicative)
+        modulated_gain = gain
+        if osc_num in lfo1_mods['vol_mod']:
+            modulated_gain = modulated_gain * lfo1_mods['vol_mod'][osc_num]
+        if osc_num in lfo2_mods['vol_mod']:
+            modulated_gain = modulated_gain * lfo2_mods['vol_mod'][osc_num]
 
         # Update voice phase
         setattr(voice, phase_attr, (phase + frames * phase_increment) % (2 * np.pi))
@@ -3700,12 +3767,24 @@ class SineWaveGenerator(QMainWindow):
             outdata[:, 1] = 0
             return
 
-        # Generate LFO signal (-1 to 1)
-        lfo_signal = self.lfo.process(frames)
+        # Generate both LFO signals (-1 to 1)
+        lfo1_signal = self.lfo1.process(frames)
+        lfo2_signal = self.lfo2.process(frames)
 
-        # Cache LFO mean value (used for pitch, PW, and filter modulation)
-        # This avoids recalculating np.mean() 7 times per callback
-        lfo_mean = np.mean(lfo_signal)
+        # Cache LFO mean values (used for pitch, PW, and filter modulation)
+        # This avoids recalculating np.mean() multiple times per callback
+        lfo1_mean = np.mean(lfo1_signal)
+        lfo2_mean = np.mean(lfo2_signal)
+
+        # Calculate modulations for both LFOs
+        lfo1_mods = self.apply_lfo_modulation(
+            1, lfo1_signal, lfo1_mean,
+            self.lfo1_destination, self.lfo1_depth, self.lfo1_mix
+        )
+        lfo2_mods = self.apply_lfo_modulation(
+            2, lfo2_signal, lfo2_mean,
+            self.lfo2_destination, self.lfo2_depth, self.lfo2_mix
+        )
 
         # Create empty mixed output
         mixed = np.zeros(frames)
@@ -3738,9 +3817,9 @@ class SineWaveGenerator(QMainWindow):
             # Generate each oscillator for this voice (WITHOUT envelope - applied post-mixer)
             # Use helper function to eliminate code duplication
             voice_mix = np.zeros(frames)
-            voice_mix += self.process_oscillator(1, voice, base_freq_detuned, lfo_signal, lfo_mean, frames)
-            voice_mix += self.process_oscillator(2, voice, base_freq_detuned, lfo_signal, lfo_mean, frames)
-            voice_mix += self.process_oscillator(3, voice, base_freq_detuned, lfo_signal, lfo_mean, frames)
+            voice_mix += self.process_oscillator(1, voice, base_freq_detuned, lfo1_mods, lfo2_mods, frames)
+            voice_mix += self.process_oscillator(2, voice, base_freq_detuned, lfo1_mods, lfo2_mods, frames)
+            voice_mix += self.process_oscillator(3, voice, base_freq_detuned, lfo1_mods, lfo2_mods, frames)
 
             # Apply SINGLE envelope to mixed oscillators (post-mixer efficiency!)
             env = voice.env.process(frames)
@@ -3776,20 +3855,16 @@ class SineWaveGenerator(QMainWindow):
             noise_env = self.noise.envelope.process(frames)
             mixed += noise_signal * noise_env * self.noise_gain
 
-        # Apply LFO modulation to filter cutoff with proper dry/wet mix
-        # Dry = base cutoff from knob, Wet = LFO-modulated cutoff
-        if self.lfo_to_filter_cutoff > 0:
-            # Calculate modulation multiplier using cached lfo_mean
-            cutoff_mod = 2.0 ** (lfo_mean * LFO_FILTER_MOD_OCTAVES * self.lfo_to_filter_cutoff)
-            # Wet signal: modulated cutoff
-            wet_cutoff = self.filter_cutoff_base * cutoff_mod
-            # Dry signal: base cutoff from knob
-            dry_cutoff = self.filter_cutoff_base
-            # Blend between dry and wet based on mix
-            self.filter.cutoff = np.clip(
-                dry_cutoff * (1.0 - self.lfo_to_filter_cutoff_mix) + wet_cutoff * self.lfo_to_filter_cutoff_mix,
-                FILTER_CUTOFF_MIN, FILTER_CUTOFF_MAX
-            )
+        # Apply LFO modulation to filter cutoff (combine both LFOs if both target filter)
+        if lfo1_mods['filter_mod'] is not None and lfo2_mods['filter_mod'] is not None:
+            # Both LFOs modulating filter - use average
+            self.filter.cutoff = (lfo1_mods['filter_mod'] + lfo2_mods['filter_mod']) / 2.0
+        elif lfo1_mods['filter_mod'] is not None:
+            # Only LFO1 modulating filter
+            self.filter.cutoff = lfo1_mods['filter_mod']
+        elif lfo2_mods['filter_mod'] is not None:
+            # Only LFO2 modulating filter
+            self.filter.cutoff = lfo2_mods['filter_mod']
         else:
             # No modulation: use base cutoff
             self.filter.cutoff = self.filter_cutoff_base
@@ -4182,8 +4257,9 @@ class SineWaveGenerator(QMainWindow):
 
     def handle_midi_bpm_change(self, bpm):
         """Handle BPM changes from MIDI clock"""
-        # Update LFO BPM
-        self.lfo.bpm = bpm
+        # Update both LFO BPMs
+        self.lfo1.bpm = bpm
+        self.lfo2.bpm = bpm
 
         # Update UI - block signals to prevent feedback
         if self.bpm_knob and self.bpm_label_value:
