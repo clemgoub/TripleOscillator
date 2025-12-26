@@ -2116,128 +2116,137 @@ class SineWaveGenerator(QMainWindow):
         layout.setSpacing(5)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        # Filter mode buttons (LP/BP/HP)
-        mode_buttons_layout = QHBoxLayout()
-        mode_buttons_layout.setSpacing(8)
-        mode_buttons_layout.addStretch(1)
+        # Filter mode buttons (LP/BP/HP) in 2x3 grid
+        # Row 0: Icons, Row 1: Buttons
+        mode_grid = QGridLayout()
+        mode_grid.setHorizontalSpacing(8)  # Spacing between columns
+        mode_grid.setVerticalSpacing(2)  # No vertical spacing between icon and button rows
+        mode_grid.setContentsMargins(0, 0, 0, 0)
 
-        # LP Button with icon above text
-        self.filter_lp_button = QToolButton()
-        self.filter_lp_button.setText("LP")
-        self.filter_lp_button.setFont(QFont("Arial", 8, QFont.Bold))
-        self.filter_lp_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)  # Icon above text!
-        self.filter_lp_button.setFixedSize(35, 45)
-        self.filter_lp_button.setCheckable(True)
-        self.filter_lp_button.setChecked(True)
-        self.filter_lp_button.clicked.connect(lambda: self.set_filter_mode("LP"))
+        # Center the grid
+        mode_layout_wrapper = QHBoxLayout()
+        mode_layout_wrapper.addStretch(1)
 
-        # Load and set icon
+        # Load icons with high-DPI support
+        app = QApplication.instance()
+        device_ratio = app.devicePixelRatio() if app else 2.0
+        physical_size = int(20 * device_ratio)
+
+        # === LP (Column 0) ===
+        # LP Icon (row 0, col 0)
+        lp_icon_label = QLabel()
+        lp_icon_label.setFixedSize(20, 20)
+        lp_icon_label.setAlignment(Qt.AlignCenter)
+        lp_icon_label.setContentsMargins(0, 0, 0, 0)
         lp_pixmap = QPixmap("icons/1x/LP.png")
         if not lp_pixmap.isNull():
-            app = QApplication.instance()
-            device_ratio = app.devicePixelRatio() if app else 2.0
-            physical_size = int(20 * device_ratio)
             scaled_pixmap = lp_pixmap.scaled(physical_size, physical_size,
                                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
             scaled_pixmap.setDevicePixelRatio(device_ratio)
-            self.filter_lp_button.setIcon(QIcon(scaled_pixmap))
-            self.filter_lp_button.setIconSize(QSize(20, 20))
+            lp_icon_label.setPixmap(scaled_pixmap)
+        mode_grid.addWidget(lp_icon_label, 0, 0, Qt.AlignBottom | Qt.AlignHCenter)
 
+        # LP Button (row 1, col 0)
+        self.filter_lp_button = QPushButton("LP")
+        self.filter_lp_button.setFont(QFont("Arial", 8, QFont.Bold))
+        self.filter_lp_button.setFixedSize(35, 25)
+        self.filter_lp_button.setCheckable(True)
+        self.filter_lp_button.setChecked(True)
+        self.filter_lp_button.clicked.connect(lambda: self.set_filter_mode("LP"))
         self.filter_lp_button.setStyleSheet("""
-            QToolButton {
+            QPushButton {
                 background-color: #fc5b42;
                 color: black;
                 border: none;
                 border-radius: 3px;
             }
-            QToolButton:hover {
+            QPushButton:hover {
                 background-color: #fc6b52;
             }
-            QToolButton:!checked {
+            QPushButton:!checked {
                 background-color: #3c3c3c;
                 color: #888888;
             }
         """)
-        mode_buttons_layout.addWidget(self.filter_lp_button)
+        mode_grid.addWidget(self.filter_lp_button, 1, 0, Qt.AlignTop | Qt.AlignHCenter)
 
-        # BP Button with icon above text
-        self.filter_bp_button = QToolButton()
-        self.filter_bp_button.setText("BP")
-        self.filter_bp_button.setFont(QFont("Arial", 8, QFont.Bold))
-        self.filter_bp_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-        self.filter_bp_button.setFixedSize(35, 45)
-        self.filter_bp_button.setCheckable(True)
-        self.filter_bp_button.clicked.connect(lambda: self.set_filter_mode("BP"))
-
-        # Load and set icon
+        # === BP (Column 1) ===
+        # BP Icon (row 0, col 1)
+        bp_icon_label = QLabel()
+        bp_icon_label.setFixedSize(20, 20)
+        bp_icon_label.setAlignment(Qt.AlignCenter)
+        bp_icon_label.setContentsMargins(0, 0, 0, 0)
         bp_pixmap = QPixmap("icons/1x/BP.png")
         if not bp_pixmap.isNull():
-            app = QApplication.instance()
-            device_ratio = app.devicePixelRatio() if app else 2.0
-            physical_size = int(20 * device_ratio)
             scaled_pixmap = bp_pixmap.scaled(physical_size, physical_size,
                                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
             scaled_pixmap.setDevicePixelRatio(device_ratio)
-            self.filter_bp_button.setIcon(QIcon(scaled_pixmap))
-            self.filter_bp_button.setIconSize(QSize(20, 20))
+            bp_icon_label.setPixmap(scaled_pixmap)
+        mode_grid.addWidget(bp_icon_label, 0, 1, Qt.AlignBottom | Qt.AlignHCenter)
 
+        # BP Button (row 1, col 1)
+        self.filter_bp_button = QPushButton("BP")
+        self.filter_bp_button.setFont(QFont("Arial", 8, QFont.Bold))
+        self.filter_bp_button.setFixedSize(35, 25)
+        self.filter_bp_button.setCheckable(True)
+        self.filter_bp_button.clicked.connect(lambda: self.set_filter_mode("BP"))
         self.filter_bp_button.setStyleSheet("""
-            QToolButton {
+            QPushButton {
                 background-color: #fc5b42;
                 color: black;
                 border: none;
                 border-radius: 3px;
             }
-            QToolButton:hover {
+            QPushButton:hover {
                 background-color: #fc6b52;
             }
-            QToolButton:!checked {
+            QPushButton:!checked {
                 background-color: #3c3c3c;
                 color: #888888;
             }
         """)
-        mode_buttons_layout.addWidget(self.filter_bp_button)
+        mode_grid.addWidget(self.filter_bp_button, 1, 1, Qt.AlignTop | Qt.AlignHCenter)
 
-        # HP Button with icon above text
-        self.filter_hp_button = QToolButton()
-        self.filter_hp_button.setText("HP")
-        self.filter_hp_button.setFont(QFont("Arial", 8, QFont.Bold))
-        self.filter_hp_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-        self.filter_hp_button.setFixedSize(35, 45)
-        self.filter_hp_button.setCheckable(True)
-        self.filter_hp_button.clicked.connect(lambda: self.set_filter_mode("HP"))
-
-        # Load and set icon
+        # === HP (Column 2) ===
+        # HP Icon (row 0, col 2)
+        hp_icon_label = QLabel()
+        hp_icon_label.setFixedSize(20, 20)
+        hp_icon_label.setAlignment(Qt.AlignCenter)
+        hp_icon_label.setContentsMargins(0, 0, 0, 0)
         hp_pixmap = QPixmap("icons/1x/HP.png")
         if not hp_pixmap.isNull():
-            app = QApplication.instance()
-            device_ratio = app.devicePixelRatio() if app else 2.0
-            physical_size = int(20 * device_ratio)
             scaled_pixmap = hp_pixmap.scaled(physical_size, physical_size,
                                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
             scaled_pixmap.setDevicePixelRatio(device_ratio)
-            self.filter_hp_button.setIcon(QIcon(scaled_pixmap))
-            self.filter_hp_button.setIconSize(QSize(20, 20))
+            hp_icon_label.setPixmap(scaled_pixmap)
+        mode_grid.addWidget(hp_icon_label, 0, 2, Qt.AlignBottom | Qt.AlignHCenter)
 
+        # HP Button (row 1, col 2)
+        self.filter_hp_button = QPushButton("HP")
+        self.filter_hp_button.setFont(QFont("Arial", 8, QFont.Bold))
+        self.filter_hp_button.setFixedSize(35, 25)
+        self.filter_hp_button.setCheckable(True)
+        self.filter_hp_button.clicked.connect(lambda: self.set_filter_mode("HP"))
         self.filter_hp_button.setStyleSheet("""
-            QToolButton {
+            QPushButton {
                 background-color: #fc5b42;
                 color: black;
                 border: none;
                 border-radius: 3px;
             }
-            QToolButton:hover {
+            QPushButton:hover {
                 background-color: #fc6b52;
             }
-            QToolButton:!checked {
+            QPushButton:!checked {
                 background-color: #3c3c3c;
                 color: #888888;
             }
         """)
-        mode_buttons_layout.addWidget(self.filter_hp_button)
+        mode_grid.addWidget(self.filter_hp_button, 1, 2, Qt.AlignTop | Qt.AlignHCenter)
 
-        mode_buttons_layout.addStretch(1)
-        layout.addLayout(mode_buttons_layout)
+        mode_layout_wrapper.addLayout(mode_grid)
+        mode_layout_wrapper.addStretch(1)
+        layout.addLayout(mode_layout_wrapper)
 
         # Knobs layout
         knobs_layout = QHBoxLayout()
