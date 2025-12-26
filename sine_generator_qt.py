@@ -24,9 +24,9 @@ from scipy import signal as scipy_signal
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton, QDial, QComboBox,
                              QFileDialog, QMessageBox, QSlider, QGridLayout, QGroupBox,
-                             QProgressBar)
-from PyQt5.QtCore import Qt, QObject, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont
+                             QProgressBar, QToolButton)
+from PyQt5.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize
+from PyQt5.QtGui import QFont, QIcon, QPixmap
 import pyqtgraph as pg
 
 
@@ -931,8 +931,8 @@ class SineWaveGenerator(QMainWindow):
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle("Triple Oscillator Synth")
-        self.setMinimumSize(1020, 900)
-        self.resize(1220, 900)
+        self.setMinimumSize(1420, 900)
+        self.resize(1420, 900)
 
         # Create spectrum analyzer window (hidden initially)
         self.spectrum_analyzer_window = SpectrumAnalyzerWindow(sample_rate=self.sample_rate, parent=self)
@@ -2121,70 +2121,115 @@ class SineWaveGenerator(QMainWindow):
         mode_buttons_layout.setSpacing(8)
         mode_buttons_layout.addStretch(1)
 
-        # LP Button
-        self.filter_lp_button = QPushButton("LP")
+        # LP Button with icon above text
+        self.filter_lp_button = QToolButton()
+        self.filter_lp_button.setText("LP")
         self.filter_lp_button.setFont(QFont("Arial", 8, QFont.Bold))
-        self.filter_lp_button.setFixedSize(35, 25)
+        self.filter_lp_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)  # Icon above text!
+        self.filter_lp_button.setFixedSize(35, 45)
         self.filter_lp_button.setCheckable(True)
-        self.filter_lp_button.setChecked(True)  # Default mode
+        self.filter_lp_button.setChecked(True)
         self.filter_lp_button.clicked.connect(lambda: self.set_filter_mode("LP"))
+
+        # Load and set icon
+        lp_pixmap = QPixmap("icons/1x/LP.png")
+        if not lp_pixmap.isNull():
+            app = QApplication.instance()
+            device_ratio = app.devicePixelRatio() if app else 2.0
+            physical_size = int(20 * device_ratio)
+            scaled_pixmap = lp_pixmap.scaled(physical_size, physical_size,
+                                            Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled_pixmap.setDevicePixelRatio(device_ratio)
+            self.filter_lp_button.setIcon(QIcon(scaled_pixmap))
+            self.filter_lp_button.setIconSize(QSize(20, 20))
+
         self.filter_lp_button.setStyleSheet("""
-            QPushButton {
+            QToolButton {
                 background-color: #fc5b42;
                 color: black;
                 border: none;
                 border-radius: 3px;
             }
-            QPushButton:hover {
+            QToolButton:hover {
                 background-color: #fc6b52;
             }
-            QPushButton:!checked {
+            QToolButton:!checked {
                 background-color: #3c3c3c;
                 color: #888888;
             }
         """)
         mode_buttons_layout.addWidget(self.filter_lp_button)
 
-        # BP Button
-        self.filter_bp_button = QPushButton("BP")
+        # BP Button with icon above text
+        self.filter_bp_button = QToolButton()
+        self.filter_bp_button.setText("BP")
         self.filter_bp_button.setFont(QFont("Arial", 8, QFont.Bold))
-        self.filter_bp_button.setFixedSize(35, 25)
+        self.filter_bp_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        self.filter_bp_button.setFixedSize(35, 45)
         self.filter_bp_button.setCheckable(True)
         self.filter_bp_button.clicked.connect(lambda: self.set_filter_mode("BP"))
+
+        # Load and set icon
+        bp_pixmap = QPixmap("icons/1x/BP.png")
+        if not bp_pixmap.isNull():
+            app = QApplication.instance()
+            device_ratio = app.devicePixelRatio() if app else 2.0
+            physical_size = int(20 * device_ratio)
+            scaled_pixmap = bp_pixmap.scaled(physical_size, physical_size,
+                                            Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled_pixmap.setDevicePixelRatio(device_ratio)
+            self.filter_bp_button.setIcon(QIcon(scaled_pixmap))
+            self.filter_bp_button.setIconSize(QSize(20, 20))
+
         self.filter_bp_button.setStyleSheet("""
-            QPushButton {
+            QToolButton {
                 background-color: #fc5b42;
                 color: black;
                 border: none;
                 border-radius: 3px;
             }
-            QPushButton:hover {
+            QToolButton:hover {
                 background-color: #fc6b52;
             }
-            QPushButton:!checked {
+            QToolButton:!checked {
                 background-color: #3c3c3c;
                 color: #888888;
             }
         """)
         mode_buttons_layout.addWidget(self.filter_bp_button)
 
-        # HP Button
-        self.filter_hp_button = QPushButton("HP")
+        # HP Button with icon above text
+        self.filter_hp_button = QToolButton()
+        self.filter_hp_button.setText("HP")
         self.filter_hp_button.setFont(QFont("Arial", 8, QFont.Bold))
-        self.filter_hp_button.setFixedSize(35, 25)
+        self.filter_hp_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        self.filter_hp_button.setFixedSize(35, 45)
         self.filter_hp_button.setCheckable(True)
         self.filter_hp_button.clicked.connect(lambda: self.set_filter_mode("HP"))
+
+        # Load and set icon
+        hp_pixmap = QPixmap("icons/1x/HP.png")
+        if not hp_pixmap.isNull():
+            app = QApplication.instance()
+            device_ratio = app.devicePixelRatio() if app else 2.0
+            physical_size = int(20 * device_ratio)
+            scaled_pixmap = hp_pixmap.scaled(physical_size, physical_size,
+                                            Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled_pixmap.setDevicePixelRatio(device_ratio)
+            self.filter_hp_button.setIcon(QIcon(scaled_pixmap))
+            self.filter_hp_button.setIconSize(QSize(20, 20))
+
         self.filter_hp_button.setStyleSheet("""
-            QPushButton {
+            QToolButton {
                 background-color: #fc5b42;
                 color: black;
                 border: none;
                 border-radius: 3px;
             }
-            QPushButton:hover {
+            QToolButton:hover {
                 background-color: #fc6b52;
             }
-            QPushButton:!checked {
+            QToolButton:!checked {
                 background-color: #3c3c3c;
                 color: #888888;
             }
