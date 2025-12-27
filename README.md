@@ -194,27 +194,58 @@ Run the synthesizer:
 
 ### Creating Sounds
 
-**Pluck Sound:**
-- Attack: 5ms, Decay: 200ms, Sustain: 0%, Release: 100ms
-- Cutoff: 2000 Hz, Resonance: 0%
-- Oscillator 1: Square wave
-- Click ON button to trigger a pluck sound
+**Classic Pluck (Chromatic Mode):**
+- Voice Mode: MONO or POLY
+- Oscillator 1: Square wave, ON
+- ADSR: Attack 5ms, Decay 200ms, Sustain 0%, Release 100ms
+- Filter: LP mode, Cutoff 2000 Hz, Resonance 0%
+- Play notes via MIDI/keyboard for percussive pluck sounds
 
-**Pad Sound:**
-- Attack: 800ms, Decay: 500ms, Sustain: 60%, Release: 1500ms
-- Cutoff: 1500 Hz, Resonance: 30%
-- Oscillators 1-3: All Sine waves, slightly detuned (e.g., 440, 442, 444 Hz)
-- Creates a lush, evolving pad
+**Lush Pad (Unison Mode):**
+- Voice Mode: UNI (8 voices with automatic detuning)
+- Oscillators 1-3: All Sine waves, ON, gains at 70%
+- Add slight detune on OSC2 (+5 cents) and OSC3 (-5 cents) for extra width
+- ADSR: Attack 800ms, Decay 500ms, Sustain 60%, Release 1500ms
+- Filter: LP mode, Cutoff 1500 Hz, Resonance 30%
+- LFO1: Sine wave, 0.3 Hz, targeting "Filter Cutoff" with Depth 20%, Mix 80%
+- Creates a warm, evolving, chorus-like pad
 
-**Bass Sound:**
-- Attack: 1ms, Decay: 300ms, Sustain: 40%, Release: 200ms
-- Cutoff: 400 Hz, Resonance: 10%
-- Oscillator 1: Sawtooth @ 110 Hz
-- Fat, punchy bass tone
+**Fat Bass (Chromatic Mode):**
+- Voice Mode: MONO
+- Oscillator 1: Sawtooth wave, ON, octave -2
+- Oscillator 2: Square wave, ON, octave -2, detune +7 cents, PW 40%
+- ADSR: Attack 1ms, Decay 300ms, Sustain 40%, Release 200ms
+- Filter: LP mode, Cutoff 400 Hz, Resonance 20%
+- Play low MIDI notes (C2-C3) for fat, punchy bass
 
-**Detune Effect:**
-- Set 2-3 oscillators to slightly different frequencies (e.g., 440, 442, 444 Hz)
-- Creates a chorus/detuned effect with natural beating
+**PWM Lead (Chromatic Mode):**
+- Voice Mode: POLY
+- Oscillator 1: Square wave, ON, PW 50%
+- ADSR: Attack 10ms, Decay 150ms, Sustain 70%, Release 300ms
+- Filter: LP mode, Cutoff 3000 Hz, Resonance 40%
+- LFO1: Triangle, 5 Hz, targeting "OSC1 Pulse Width" with Depth 60%, Mix 100%
+- LFO2: Sine, 0.15 Hz, targeting "Filter Cutoff" with Depth 30%, Mix 70%
+- Creates classic analog lead with PWM movement
+
+**Supersaw (Unison Mode):**
+- Voice Mode: UNI (8 detuned voices)
+- Oscillators 1-3: All Sawtooth, ON, octave 0
+- Add slight detune spread: OSC2 +10 cents, OSC3 -10 cents
+- ADSR: Attack 20ms, Decay 200ms, Sustain 80%, Release 400ms
+- Filter: LP mode, Cutoff 8000 Hz, Resonance 10%
+- All gains at 80%, Master volume 60%
+- Massive, wide supersaw sound
+
+**Ambient Texture (Drone Mode):**
+- Playback Mode: DRONE
+- Oscillator 1: Sine, ON, click ON button to trigger
+- Oscillator 2: Triangle, ON, click ON button
+- Noise: White noise, ON, Gain 30%
+- ADSR: Attack 2000ms, Decay 1000ms, Sustain 50%, Release 3000ms
+- Filter: BP mode, Cutoff 1200 Hz, Resonance 60%
+- LFO1: Random, 0.2 Hz, targeting "Filter Cutoff", Depth 40%, Mix 90%
+- LFO2: Sine, 0.08 Hz, targeting "All OSCs Volume", Depth 20%, Mix 80%
+- Evolving, atmospheric drone texture
 
 ## Architecture
 
@@ -234,28 +265,40 @@ classDiagram
         +voice_pool: list~Voice~
         +max_polyphony: int
         +unison_count: int
+        +playback_mode: str
+        +voice_mode: str
+        +master_volume: float
+        +power_on: bool
+        +lfo1, lfo2: LFOGenerator
+        +lfo1_destination, lfo2_destination: str
+        +lfo1_depth, lfo2_depth: float
+        +lfo1_mix, lfo2_mix: float
         +env: EnvelopeGenerator
         +noise: NoiseGenerator
         +filter: MoogLadderFilter
+        +filter_cutoff_base: float
         +midi_handler: MIDIHandler
         +init_ui()
         +audio_callback()
         +set_voice_mode(mode)
+        +set_playback_mode(mode)
         +reallocate_voice_pool()
-        +handle_note_on(note)
-        +handle_note_off(note)
-        +toggle_oscillator()
+        +handle_midi_note_on(note, vel)
+        +handle_midi_note_off(note)
+        +handle_midi_bpm_change(bpm)
         +poly_blep_vectorized(t, dt)
-        +generate_waveform()
-        +process_oscillator(osc_num, voice, ...)
+        +generate_waveform(type, phase, ...)
+        +process_oscillator(osc, voice, freq, mods, ...)
+        +apply_lfo_modulation(lfo, signal, ...)
         +steal_voice()
-        +apply_detune()
-        +apply_octave()
-        +update_pulse_width()
-        +update_adsr()
+        +apply_detune(freq, cents)
+        +apply_octave(freq, offset)
         +save_preset()
         +load_preset()
+        +load_preset_by_index(idx)
         +update_ui_from_preset()
+        +update_lfo_leds()
+        +update_level_meter()
     }
 
     class Voice {
@@ -332,14 +375,24 @@ classDiagram
         +paintEvent(event)
     }
 
+    class SpectrumAnalyzerWindow {
+        +plot_widget: PlotWidget
+        +audio_queue: Queue
+        +fft_data: ndarray
+        +process_audio_data()
+        +update_plot()
+        +keyPressEvent(event)
+    }
+
     SineWaveGenerator "1" --> "1" EnvelopeGenerator : template
-    SineWaveGenerator "1" --> "8" Voice : voice pool
+    SineWaveGenerator "1" --> "8" Voice : voice pool (max)
     SineWaveGenerator "1" --> "1" NoiseGenerator : contains
     SineWaveGenerator "1" --> "1" MoogLadderFilter : contains
     SineWaveGenerator "1" --> "1" MIDIHandler : contains
     SineWaveGenerator "1" --> "2" LFOGenerator : lfo1, lfo2
     SineWaveGenerator "1" --> "2" LFOLEDIndicator : led indicators
-    Voice "1" --> "1" EnvelopeGenerator : post-mixer envelope
+    SineWaveGenerator "1" ..> "0..1" SpectrumAnalyzerWindow : creates popup
+    Voice "1" --> "1" EnvelopeGenerator : per-voice envelope
     NoiseGenerator "1" --> "1" EnvelopeGenerator : noise envelope
 ```
 
@@ -389,83 +442,157 @@ sequenceDiagram
     participant INPUT as MIDI/Keyboard Input
     participant UI as User Interface
     participant VM as Voice Manager
-    participant VOICE as Voice (with 3 OSC + 1 ENV)
+    participant LFO as LFO1 & LFO2
+    participant VOICE as Voice (3 OSC + 1 ENV)
+    participant NOISE as Noise Generator
     participant FILT as Moog Ladder Filter
     participant OUT as Audio Output
 
     UI->>VM: Set voice mode (MONO/POLY/UNI)
     UI->>VOICE: Set ADSR params (all voices)
     UI->>FILT: Set mode (LP/BP/HP), cutoff, resonance
+    UI->>LFO: Set waveform, rate, destination, depth, mix
 
     INPUT->>VM: Note On (MIDI note 60, velocity 100)
 
     alt MONO Mode
-        VM->>VOICE: Allocate single voice
-        VM->>VOICE: Trigger voice (note 60)
+        VM->>VOICE: Force-reset all voices, allocate 1
+        VM->>VOICE: Trigger envelope (note 60, velocity)
     else POLY Mode
-        VM->>VOICE: Find free voice or steal oldest
-        VM->>VOICE: Trigger voice (note 60)
+        VM->>VOICE: Find free voice or steal oldest (by age)
+        VM->>VOICE: Trigger envelope (note 60, velocity)
     else UNI Mode
         VM->>VOICE: Trigger 8 voices (all note 60)
-        VM->>VOICE: Apply detune spread (-20 to +20 cents)
+        VM->>VOICE: Apply symmetric detune spread
     end
 
-    loop Every Audio Buffer
-        VOICE->>VOICE: Generate 3 waveforms (sine/saw/square)
-        VOICE->>VOICE: Apply detune + octave offsets
-        VOICE->>VOICE: Mix 3 oscillators with gain
-        VOICE->>VOICE: Apply single ADSR envelope to mixed signal
-        VOICE->>VM: Return voice audio
-        VM->>VM: Sum all active voices
-        VM->>VM: Add noise generator (if enabled, with envelope)
-        VM->>FILT: Apply Moog ladder filter (LP/BP/HP mode)
-        FILT->>OUT: Output stereo audio
+    loop Every Audio Buffer (512 samples @ 44.1kHz)
+        LFO->>LFO: Generate LFO1 & LFO2 signals
+        LFO->>LFO: Calculate modulation dicts (pitch/PW/vol/filter)
+
+        loop For each active voice
+            VOICE->>VOICE: Convert MIDI note → frequency
+            VOICE->>VOICE: Apply unison detune (if UNI mode)
+
+            loop For each oscillator (1, 2, 3)
+                VOICE->>VOICE: Apply LFO pitch modulation (multiplicative)
+                VOICE->>VOICE: Generate waveform with PolyBLEP
+                VOICE->>VOICE: Apply LFO pulse width modulation (additive)
+                VOICE->>VOICE: Apply oscillator gain
+                VOICE->>VOICE: Apply LFO volume modulation (multiplicative)
+            end
+
+            VOICE->>VOICE: Sum 3 oscillators (voice_mix)
+            VOICE->>VOICE: Apply single post-mixer ADSR envelope
+            VOICE->>VM: Return envelope × voice_mix
+        end
+
+        VM->>VM: Normalize by 1/sqrt(active_voices)
+        NOISE->>VM: Add noise (if enabled) with envelope × gain
+        VM->>VM: Apply LFO filter cutoff modulation
+        VM->>FILT: Process through Moog ladder (LP/BP/HP)
+        FILT->>FILT: Apply master volume
+        FILT->>FILT: DC blocking filter (5Hz highpass)
+        FILT->>FILT: Soft clip (±1.0 safety limit)
+        FILT->>OUT: Output stereo (mono copy to L+R)
     end
 
     INPUT->>VM: Note Off (MIDI note 60)
     VM->>VOICE: Release matching voice(s)
-    VOICE->>VOICE: Start release phase
-    VOICE->>VOICE: Continue until envelope idle
+    VOICE->>VOICE: Envelope enters release phase
+    VOICE->>VOICE: Continue processing until envelope idle
     VOICE->>VM: Mark voice as free (note = None)
 ```
 
 ### Components
 
 **Voice Management**
-- Pre-allocated voice pool (up to 8 voices)
-- Voice stealing with LRU (Least Recently Used) algorithm
-- Three voice modes: MONO (1 voice), POLY (8 voices), UNI (8 detuned voices)
-- Each voice has independent oscillators and phase accumulators
-- **Post-Mixer Envelope Architecture**: Single envelope applied after oscillator mixing for efficiency
+- Pre-allocated voice pool (up to 8 voices maximum)
+- Dynamic allocation based on voice mode:
+  - MONO: 1 voice allocated
+  - POLY: 8 voices allocated
+  - UNI: 8 voices allocated with symmetric detune spread
+- Voice stealing with age-based LRU (Least Recently Used) algorithm
+- Each voice contains:
+  - 3 independent phase accumulators (one per oscillator)
+  - 1 post-mixer ADSR envelope
+  - Unison detune offset (for UNI mode)
+  - Note number and velocity
+- Phase preservation during voice stealing prevents clicks
+- Voice normalization: `1/sqrt(active_voices)` maintains consistent loudness
 
-**Oscillator**
-- Generates waveforms using phase accumulation
-- Maintains phase continuity across frequency changes
-- Supports sine, sawtooth, and square waveforms with PWM
-- Independent per-voice oscillators for true polyphony
-- Three oscillators per voice, mixed before envelope application
+**Oscillator Engine**
+- Generates waveforms using phase accumulation with phase increment = `2π × freq / sample_rate`
+- Maintains phase continuity across frequency changes (click-free modulation)
+- Three waveform types per oscillator:
+  - **Sine**: Pure sinusoidal using `np.sin(phase)`
+  - **Sawtooth**: Band-limited with PolyBLEP anti-aliasing
+  - **Square**: Band-limited with PolyBLEP, variable pulse width (1-99%)
+- Independent per-voice oscillators enable true polyphony
+- Per-oscillator controls: waveform, detune (±100 cents), octave (-3 to +3), pulse width, gain
+- Three oscillators summed before envelope application (post-mixer architecture)
 
-**ADSR Envelope**
+**ADSR Envelope Generator**
 - State machine with 5 phases: idle, attack, decay, sustain, release
-- Linear interpolation between envelope stages
-- **Single envelope per voice** applied post-mixer (efficient architecture matching analog synths)
-- Real-time parameter updates affect all active voices
-- Proper release phase management for natural note decay
+- Linear interpolation between envelope stages for smooth transitions
+- Timing ranges: Attack/Decay 0-2000ms, Sustain 0-100%, Release 0-5000ms
+- **5ms minimum attack** (ENV_MIN_ATTACK) prevents discontinuities and clicks
+- **Single envelope per voice** applied after oscillator mixing (not per-oscillator)
+- Legato retriggering for voice stealing (smooth transitions, analog behavior)
+- Vectorized NumPy processing for efficiency
+- Real-time parameter updates affect all active voices immediately
+
+**Dual LFO System**
+- Two independent LFO generators with identical capabilities
+- 5 waveforms: Sine, Triangle, Square, Sawtooth, Random (uniform noise)
+- Two rate modes:
+  - **Free**: Manual Hz control (0.1-20 Hz)
+  - **Sync**: MIDI tempo-synced divisions (1/16 to 4/1), BPM from MIDI clock
+- 7 modulation destinations per LFO: None, All OSCs Pitch, Filter Cutoff, All OSCs Volume, OSC1/2/3 PW
+- Modulation combining when both LFOs target same destination:
+  - Pitch/Volume: Multiplicative combination
+  - Pulse Width: Additive combination
+  - Filter: Averaged combination
+- Controls: Depth (0-100%), Mix/dry-wet (0-100%)
+- Real-time LED indicators show LFO signal intensity with gradient glow
 
 **Noise Generator**
-- Paul Kellet's pink noise algorithm for 1/f spectrum
-- Brownian noise via integration for warm, bass-heavy texture
+- Three noise types:
+  - **White**: Uniform spectrum via `np.random.uniform(-1, 1)`
+  - **Pink**: 1/f spectrum using Paul Kellet's algorithm (5-stage generator)
+  - **Brown**: 1/f² spectrum via integration (Brownian motion)
 - Independent envelope synchronized with oscillator ADSR
-- Behaves as 4th oscillator with chromatic/drone mode support
+- Behaves as 4th oscillator source
+- Mode-dependent triggering:
+  - Chromatic mode: Triggered by note-on events
+  - Drone mode: Triggered by noise ON/OFF button
 
 **Moog Ladder Filter**
-- 4-pole cascade topology with resonance feedback (classic Moog design)
-- Three filter modes: LP (24dB/octave), BP (12dB/octave), HP (high-pass by subtraction)
-- Adjustable cutoff frequency (20-20000 Hz) and resonance (0-100%)
-- **Proper HP implementation**: Uses correct input reference for mathematically accurate high-pass response
-- **Stability protection**: Feedback gain limiting prevents self-oscillation
-- **Artifact-free operation**: State management eliminates instability at high resonance
-- Applied globally after voice and noise mixing
+- Classic 4-pole cascade topology with resonance feedback
+- Three filter modes:
+  - **LP**: 24dB/octave rolloff from 4th stage output
+  - **BP**: 12dB/octave from 2nd stage output
+  - **HP**: High-pass by subtraction using proper input reference
+- Cutoff range: 20-20,000 Hz (full audible spectrum, logarithmic scaling)
+- Resonance: 0-100% mapped to Q factor (0.5-10.0 range)
+- **Coefficient caching**: Only recalculates when parameters change
+- **State limiting**: Clamps state variables (±10.0) and output (±2.0) for stability
+- **Artifact-free**: No pops when sweeping parameters or switching modes
+- Applied globally after voice summing and noise mixing
+
+**Audio Processing Pipeline**
+- Sample rate: 44.1 kHz
+- Buffer size: 512 samples (11.6ms latency)
+- Processing order:
+  1. LFO signal generation
+  2. Voice processing with modulation
+  3. Voice normalization (1/sqrt(N))
+  4. Noise mixing
+  5. Moog ladder filtering with LFO modulation
+  6. Master volume scaling
+  7. DC blocking filter (5Hz cutoff)
+  8. Soft clipping (±1.0 safety limit)
+  9. Stereo output (mono duplicated to L+R)
 
 ## Project Structure
 
