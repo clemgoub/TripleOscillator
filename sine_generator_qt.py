@@ -1555,7 +1555,7 @@ class SineWaveGenerator(QMainWindow):
                 border-radius: 5px;
                 margin-top: 10px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 24px;
                 padding-top: 15px;
                 color: #ffffff;
             }
@@ -2343,8 +2343,8 @@ class SineWaveGenerator(QMainWindow):
         # Title
         title = QLabel("LFO MODULATION")
         title.setAlignment(Qt.AlignCenter)
-        title.setFont(QFont("Arial", 12, QFont.Bold))
-        main_layout.addWidget(title)
+        title.setFont(QFont("Arial", 24, QFont.Bold))
+        #main_layout.addWidget(title)
 
         # LFO 1 Row
         lfo1_row = self.create_lfo_row(1, self.lfo1, 'lfo1_destination', 'lfo1_depth', 'lfo1_mix')
